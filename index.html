@@ -148,6 +148,7 @@
     .col-side h2,.col-side .sub{text-align:center;}
   }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -245,6 +246,12 @@
 <script>
 (function(){
   "use strict";
+  var SUPABASE_URL="https://spiqanngbnynxgaxjssb.supabase.co";
+  var SUPABASE_KEY="sb_publishable_여기에_내_키_전체";
+  window.sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+  function uuid(){ if(window.crypto&&crypto.randomUUID) return crypto.randomUUID();
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,function(c){var r=Math.random()*16|0,v=c=="x"?r:(r&0x3|0x8);return v.toString(16);}); }
+  var savedMemberId=null;
   var $=function(id){return document.getElementById(id);};
   /* ---------- signup ---------- */
   var member=null;
@@ -266,7 +273,8 @@
     if(!agreed){$("checkRow").classList.add("err");return fail("개인정보 수집·이용에 동의해 주세요.");}
     fail("");
     member={name:name,phone:pd,at:new Date().toISOString()};
-    /* TODO: 여기서 member 정보를 서버/구글시트로 전송 (현재 저장 안 함) */
+    savedMemberId=uuid();
+    if(window.sb){ window.sb.from("members").insert({id:savedMemberId,name:name,phone:pd}).then(function(r){if(r&&r.error)console.warn(r.error.message);}).catch(function(){}); }
     $("who").textContent=name+"님, 행운을 빌어요!";
     $("signup").classList.remove("active");
     $("game").classList.add("active");
@@ -369,6 +377,7 @@
     pt.textContent=o.label;pt.classList.toggle("lose",lose);
     $("prizeMsg").textContent=lose?"아쉬워요. 다음 기회에 도전!":"축하합니다! 직원에게 화면을 보여주세요.";
     $("modal").classList.add("show");
+    if(window.sb){ window.sb.from("spins").insert({member_id:savedMemberId,prize:o.label}).then(function(){}).catch(function(){}); }
     if(!lose){fanfare();confetti();}else tick();
   }
 
