@@ -260,6 +260,26 @@
     .bar-sub{font-size:10.5px;}
     .bar-booking{padding:7px 13px;font-size:12px;}
   }
+  /* ── 원반설정 탭 ── */
+  .w-count-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding:12px 0;border-bottom:1px solid var(--line);}
+  .w-count-row > span{font-size:15px;font-weight:600;color:var(--ink);}
+  .w-stepper{display:flex;align-items:center;}
+  .w-step-btn{width:36px;height:36px;border-radius:9px;border:1px solid var(--line);background:var(--cream);color:var(--ink);font-size:18px;cursor:pointer;font-weight:700;font-family:var(--font);}
+  .w-step-btn:disabled{opacity:.35;}
+  .w-stepper > b{min-width:28px;text-align:center;font-size:15px;color:var(--ink);margin:0 6px;}
+  .w-opt{display:flex;align-items:center;margin-bottom:10px;}
+  .w-dot{width:14px;height:14px;border-radius:4px;flex-shrink:0;margin-right:9px;}
+  .w-inp{flex:1;min-width:0;background:var(--paper);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:10px 12px;font-size:14px;font-family:var(--font);}
+  .w-inp:focus{outline:none;border-color:var(--red);}
+  .w-wbox{display:flex;align-items:center;margin-left:8px;}
+  .w-wbox .w-step-btn{width:30px;height:30px;font-size:15px;border-radius:7px;}
+  .w-wbox b{min-width:24px;text-align:center;font-size:14px;color:var(--ink);margin:0 3px;}
+  .w-pct{min-width:44px;text-align:right;font-size:12px;color:var(--brass);margin-left:8px;font-weight:700;}
+  .w-foot{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);}
+  .w-reset{background:none;border:none;color:var(--ink-soft);text-decoration:underline;cursor:pointer;font-size:13px;font-family:var(--font);}
+  .w-legend{font-size:12px;color:var(--ink-soft);}
+  .w-save-row{margin-top:18px;display:flex;align-items:center;gap:14px;}
+  #wStatus{font-size:13px;color:var(--ink-soft);}
 </style>
 </head>
 <body>
@@ -401,9 +421,26 @@
 
     <!-- 원반설정 -->
     <section class="view" id="wheel">
-      <div class="card" style="padding:36px;text-align:center;">
-        <h2 class="sec" style="font-size:20px;">🎡 원반설정</h2>
-        <p style="color:var(--ink-soft);margin-top:14px;font-size:15px;">원반 상품 및 당첨확률 설정 (준비 중)</p>
+      <div class="card" style="padding:22px 20px;max-width:600px;">
+        <h2 class="sec" style="margin-bottom:4px;">🎡 원반설정</h2>
+        <p style="color:var(--ink-soft);font-size:13px;margin:0 0 18px;">상품 이름과 <b>당첨 가중치</b>를 설정하세요. 가중치가 높을수록 자주 나옵니다.</p>
+        <div class="w-count-row">
+          <span>옵션 개수</span>
+          <div class="w-stepper">
+            <button id="wMinus" class="w-step-btn">−</button>
+            <b id="wCountLabel">6</b>
+            <button id="wPlus" class="w-step-btn">+</button>
+          </div>
+        </div>
+        <div id="wOptList"></div>
+        <div class="w-foot">
+          <button class="w-reset" id="wResetBtn">기본값으로 초기화</button>
+          <span class="w-legend" id="wSumLabel"></span>
+        </div>
+        <div class="w-save-row">
+          <button class="btn green" id="wSaveBtn" style="flex:1;padding:13px;">저장</button>
+          <span id="wStatus"></span>
+        </div>
       </div>
     </section>
 
@@ -796,6 +833,84 @@ if(mobLogoutEl) mobLogoutEl.addEventListener("click", async function(){
 });
 
 /* ══════════════════════════════════
+   WHEEL SETTINGS
+══════════════════════════════════ */
+var W_PALETTE=["#E5547C","#F4A23C","#F6CE4B","#5FB97E","#3FA7B5","#5A7FE0","#9B6FD6","#E8745A"];
+var W_DEFAULTS=[
+  {label:"아메리카노 1잔",weight:1},{label:"1,000원 할인",weight:3},
+  {label:"꽝! 다음 기회에",weight:4},{label:"사이즈 업",weight:3},
+  {label:"디저트 1개",weight:1},{label:"포인트 2배",weight:2}
+];
+var wheelOpts=W_DEFAULTS.map(function(o,i){return{label:o.label,weight:o.weight,color:W_PALETTE[i%8]};});
+
+function renderWheelOpts(){
+  var ol=document.getElementById("wOptList"),cl=document.getElementById("wCountLabel");
+  var sl=document.getElementById("wSumLabel"),wm=document.getElementById("wMinus"),wp=document.getElementById("wPlus");
+  if(!ol)return;
+  if(cl)cl.textContent=wheelOpts.length;
+  if(wm)wm.disabled=wheelOpts.length<=2;
+  if(wp)wp.disabled=wheelOpts.length>=8;
+  var sum=0,i;for(i=0;i<wheelOpts.length;i++)sum+=Math.max(0,wheelOpts[i].weight);sum=sum||1;
+  if(sl)sl.textContent="합계 가중치 "+sum;
+  ol.innerHTML="";
+  wheelOpts.forEach(function(o,idx){
+    var row=document.createElement("div");row.className="w-opt";
+    var pct=Math.round(Math.max(0,o.weight)/sum*100);
+    row.innerHTML="<span class=\"w-dot\" style=\"background:"+o.color+"\"></span>"+
+      "<input type=\"text\" value=\""+o.label.replace(/\"/g,"&quot;")+"\" data-i=\""+idx+"\" maxlength=\"14\" class=\"w-inp\">"+
+      "<div class=\"w-wbox\"><button data-dec=\""+idx+"\" class=\"w-step-btn\">−</button><b>"+o.weight+"</b><button data-inc=\""+idx+"\" class=\"w-step-btn\">+</button></div>"+
+      "<span class=\"w-pct\">"+pct+"%</span>";
+    ol.appendChild(row);
+  });
+  var t=ol.querySelectorAll("input[type=text]");
+  for(i=0;i<t.length;i++)t[i].oninput=function(e){wheelOpts[+e.target.dataset.i].label=e.target.value;};
+  var inc=ol.querySelectorAll("[data-inc]");
+  for(i=0;i<inc.length;i++)inc[i].onclick=function(){var k=+this.dataset.inc;wheelOpts[k].weight=Math.min(20,wheelOpts[k].weight+1);renderWheelOpts();};
+  var dec=ol.querySelectorAll("[data-dec]");
+  for(i=0;i<dec.length;i++)dec[i].onclick=function(){var k=+this.dataset.dec;wheelOpts[k].weight=Math.max(0,wheelOpts[k].weight-1);renderWheelOpts();};
+}
+
+function setWheelCount(n){
+  n=Math.max(2,Math.min(8,n));
+  while(wheelOpts.length<n)wheelOpts.push({label:"옵션 "+(wheelOpts.length+1),weight:1,color:W_PALETTE[wheelOpts.length%8]});
+  while(wheelOpts.length>n)wheelOpts.pop();
+  wheelOpts.forEach(function(o,i){o.color=W_PALETTE[i%8];});renderWheelOpts();
+}
+
+async function loadWheelOpts(){
+  try{
+    var r=await sb.from("settings").select("value").eq("key","wheel").single();
+    if(r.data&&r.data.value&&Array.isArray(r.data.value)){
+      wheelOpts=r.data.value.map(function(o,i){return{label:o.label,weight:+(o.weight)||1,color:W_PALETTE[i%8]};});
+    }
+  }catch(e){}
+  renderWheelOpts();
+}
+
+async function saveWheelOpts(){
+  var st=document.getElementById("wStatus");
+  if(st){st.textContent="저장 중…";st.style.color="var(--ink-soft)";}
+  try{
+    var arr=wheelOpts.map(function(o){return{label:o.label,weight:o.weight};});
+    var r=await sb.from("settings").update({value:arr,updated_at:new Date()}).eq("key","wheel");
+    if(r.error) await sb.from("settings").insert({key:"wheel",value:arr});
+    if(st){st.textContent="✔ 저장됐습니다";st.style.color="var(--green)";}
+  }catch(e){
+    if(st){st.textContent="저장 실패: "+e.message;st.style.color="var(--red)";}
+  }
+  setTimeout(function(){if(st)st.textContent="";},3000);
+}
+
+(function(){
+  var wm=document.getElementById("wMinus"),wp=document.getElementById("wPlus");
+  var wrb=document.getElementById("wResetBtn"),wsb=document.getElementById("wSaveBtn");
+  if(wm)wm.onclick=function(){setWheelCount(wheelOpts.length-1);};
+  if(wp)wp.onclick=function(){setWheelCount(wheelOpts.length+1);};
+  if(wrb)wrb.onclick=function(){wheelOpts=W_DEFAULTS.map(function(o,i){return{label:o.label,weight:o.weight,color:W_PALETTE[i%8]};});renderWheelOpts();};
+  if(wsb)wsb.onclick=saveWheelOpts;
+})();
+
+/* ══════════════════════════════════
    INIT
 ══════════════════════════════════ */
 (async function init(){
@@ -806,6 +921,7 @@ if(mobLogoutEl) mobLogoutEl.addEventListener("click", async function(){
     showAdmin(res.data.session.user.email);
     loadData();
     renderTierCards();
+    loadWheelOpts();
   } else {
     showLogin();
   }
