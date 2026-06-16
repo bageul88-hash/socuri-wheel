@@ -142,6 +142,8 @@
     letter-spacing:.18em;cursor:pointer;font-family:var(--font);-webkit-tap-highlight-color:transparent;}
   .member-input::placeholder{font-size:clamp(13px,1.6vmin,16px);font-weight:500;letter-spacing:0;color:var(--ink-soft);opacity:.7;}
   .member-input:focus{outline:none;border-color:var(--red);box-shadow:0 0 0 3px rgba(214,31,58,.12);}
+  .member-msg{margin-top:8px;font-size:clamp(12px,1.4vmin,14px);font-weight:600;min-height:1.3em;color:var(--green-deep);}
+  .member-msg.err{color:var(--red);}
 
   /* ── 숫자 키패드 ── */
   .numpad-overlay{display:none;position:fixed;inset:0;z-index:45;background:rgba(28,22,17,.52);align-items:center;justify-content:center;padding:20px;}
@@ -192,6 +194,7 @@
       <div class="member-input-wrap">
         <label class="member-label">회원번호를 입력하세요</label>
         <input id="memberNum" type="text" placeholder="회원번호를 입력하세요" readonly inputmode="none" autocomplete="off" class="member-input">
+        <p id="memberMsg" class="member-msg"></p>
       </div>
     </div>
     <div class="col-form">
@@ -332,7 +335,7 @@
   };
   function resetSignup(){
     $("name").value="";$("phone").value="";$("agree").checked=false;fail("");
-    memberNum="";$("memberNum").value="";
+    memberNum="";$("memberNum").value="";$("memberMsg").textContent="";$("memberMsg").className="member-msg";
     $("numpadDisplay").textContent="회원번호를 입력하세요";$("numpadDisplay").classList.add("empty");
     $("game").classList.remove("active");$("signup").classList.add("active");
     rotation=-Math.PI/2;
@@ -487,7 +490,7 @@
   window.addEventListener("orientationchange",function(){setTimeout(function(){resize();fxResize();},250);});
   renderOpts();
 
-  /* ── 회원번호 키패드 ── */
+  /* ── 회원번호 키패드 + 재방문 체크인 ── */
   var MAX_NUM_LEN=4;
   function updateNumDisplay(){
     var d=$("numpadDisplay");
@@ -495,8 +498,33 @@
     else{d.textContent="회원번호를 입력하세요";d.classList.add("empty");}
     $("memberNum").value=memberNum;
   }
-  function showNumpad(){$("numpad").classList.add("show");}
+  function setMemberMsg(msg,isErr){
+    var el=$("memberMsg");
+    el.textContent=msg;
+    el.className="member-msg"+(isErr?" err":"");
+  }
+  function showNumpad(){$("numpad").classList.add("show");setMemberMsg("");}
   function hideNumpad(){$("numpad").classList.remove("show");}
+  async function checkInMember(){
+    if(!memberNum||memberNum.length<MAX_NUM_LEN){
+      setMemberMsg("4자리를 모두 입력해 주세요.",true);return;
+    }
+    if(!window.sb){setMemberMsg("서버 연결 오류.",true);return;}
+    setMemberMsg("확인 중…");
+    hideNumpad();
+    var res=await window.sb.rpc("get_member_by_code",{code:memberNum});
+    if(res.error||!res.data||!res.data[0]){
+      setMemberMsg("회원번호를 찾을 수 없습니다. 오른쪽에서 새로 가입해 주세요.",true);
+      return;
+    }
+    var m=res.data[0];
+    savedMemberId=m.id;
+    $("who").textContent=m.name+"님, 행운을 빌어요!";
+    setMemberMsg("");
+    $("signup").classList.remove("active");
+    $("game").classList.add("active");
+    requestAnimationFrame(function(){resize();fxResize();});
+  }
   var mnEl=$("memberNum");
   mnEl.addEventListener("mouseenter",showNumpad);
   mnEl.addEventListener("click",function(e){e.preventDefault();showNumpad();});
@@ -509,9 +537,10 @@
       else if(k==="clr"){memberNum="";}
       else if(memberNum.length<MAX_NUM_LEN){memberNum+=k;}
       updateNumDisplay();
+      if(memberNum.length===MAX_NUM_LEN)checkInMember();
     });
   });
-  $("numpadDone").addEventListener("click",hideNumpad);
+  $("numpadDone").addEventListener("click",checkInMember);
   $("numpad").addEventListener("click",function(e){if(e.target===this)hideNumpad();});
 })();
 </script>
