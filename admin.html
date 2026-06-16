@@ -137,14 +137,90 @@
   #toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:13px 22px;border-radius:30px;font-size:13.5px;font-weight:700;opacity:0;transition:.3s;z-index:80;pointer-events:none;}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
+  /* ── Mobile nav bar (visible only ≤640px) ── */
+  #mobileNav{
+    display:none;position:fixed;top:0;left:0;right:0;z-index:15;
+    background:var(--red);color:#fff;align-items:center;
+    overflow-x:auto;-webkit-overflow-scrolling:touch;
+    padding-top:env(safe-area-inset-top);
+    box-shadow:0 2px 10px rgba(0,0,0,.25);
+  }
+  .mob-brand{
+    flex-shrink:0;padding:0 12px 0 16px;font-weight:900;font-size:16px;
+    color:#fff;height:52px;display:flex;align-items:center;
+    border-right:1px solid rgba(255,255,255,.22);letter-spacing:.04em;
+  }
+  .mob-nav-item{
+    flex-shrink:0;border:none;background:none;color:rgba(255,255,255,.8);
+    padding:0 13px;height:52px;font-size:13px;font-weight:700;cursor:pointer;
+    font-family:var(--font);white-space:nowrap;display:flex;align-items:center;gap:5px;
+  }
+  .mob-nav-item.active{color:#fff;background:rgba(0,0,0,.22);}
+  .mob-nav-item:active{background:rgba(0,0,0,.3);}
+  .mob-logout-btn{
+    flex-shrink:0;margin-left:auto;margin-right:14px;
+    border:1px solid rgba(255,255,255,.45);background:none;color:#fff;
+    padding:6px 13px;border-radius:8px;font-size:12.5px;font-weight:700;
+    cursor:pointer;font-family:var(--font);white-space:nowrap;
+  }
+
   @media(max-width:900px){
-    body{flex-direction:column;}
-    .side{width:100%;flex:none;height:auto;flex-direction:row;align-items:center;overflow-x:auto;}
-    nav{display:flex;padding:8px;}
-    .nav-item{white-space:nowrap;margin:0 3px;}
-    .side-foot,.brand small{display:none;}
-    .stats,.tiers{grid-template-columns:1fr 1fr;}
+    .tiers{grid-template-columns:1fr 1fr;}
     .smswrap{grid-template-columns:1fr;}
+  }
+
+  @media(max-width:640px){
+    /* show mobile nav, hide sidebar & desktop topbar */
+    #mobileNav{display:flex;}
+    .side{display:none;}
+    .topbar{display:none;}
+
+    /* body & admin wrap */
+    body{flex-direction:column;height:auto;overflow-y:auto;}
+    #adminWrap{flex-direction:column;min-height:100vh;}
+    .main{overflow-y:visible;}
+
+    /* push content below fixed nav */
+    .content{
+      padding:16px 14px 70px;
+      padding-top:calc(52px + env(safe-area-inset-top) + 16px);
+    }
+
+    /* stats: 2 columns */
+    .stats{grid-template-columns:1fr 1fr;}
+    .stat .num{font-size:22px;}
+    .tiers{grid-template-columns:1fr;}
+
+    /* toolbar / search full width */
+    .toolbar{flex-direction:column;align-items:stretch;gap:10px;}
+    .search{max-width:100%;}
+
+    /* table → card layout */
+    table{background:transparent;border-radius:0;overflow:visible;}
+    table thead{display:none;}
+    table,tbody{display:block;}
+    table tr{
+      display:block;background:var(--paper);border:1px solid var(--line);
+      border-radius:16px;margin-bottom:12px;padding:14px 16px;
+    }
+    table td{
+      display:flex;align-items:center;justify-content:space-between;
+      border-bottom:1px solid var(--line);padding:9px 0;font-size:13px;
+    }
+    table td:last-child{border-bottom:none;padding-top:12px;}
+    table td::before{
+      content:attr(data-label);font-size:12px;color:var(--ink-soft);
+      font-weight:700;flex-shrink:0;margin-right:10px;
+    }
+    table td[data-label=" "]{justify-content:flex-end;}
+    table td[data-label=" "]::before{display:none;}
+
+    /* modal: edge to edge on small screens */
+    .overlay{padding:10px;}
+    .modal{border-radius:16px;}
+
+    /* login box */
+    .login-box{padding:32px 22px;}
   }
 </style>
 </head>
@@ -171,6 +247,16 @@
 
 <!-- ═══ ADMIN WRAP ═══ -->
 <div id="adminWrap">
+
+<!-- ═══ MOBILE NAV (≤640px only) ═══ -->
+<div id="mobileNav">
+  <div class="mob-brand">S</div>
+  <button class="mob-nav-item active" data-view="dash">▦ 대시보드</button>
+  <button class="mob-nav-item" data-view="customers">☻ 고객</button>
+  <button class="mob-nav-item" data-view="tiers">★ 등급</button>
+  <button class="mob-nav-item" data-view="sms">✉ 문자</button>
+  <button class="mob-logout-btn" id="mobLogoutBtn">로그아웃</button>
+</div>
 
 <aside class="side">
   <div class="brand">
@@ -467,12 +553,12 @@ function renderCustomers(){
   document.getElementById("custBody").innerHTML = list.map(function(m){
     var t = getTier(m.points);
     return '<tr>'
-      + '<td>' + esc(m.name) + '</td>'
-      + '<td class="mono">' + esc(m.phone||"-") + '</td>'
-      + '<td><span class="tier-badge" style="background:' + t.color + '">' + t.name + '</span></td>'
-      + '<td class="pts">' + m.points.toLocaleString() + 'P</td>'
-      + '<td>' + m.attend + '</td>'
-      + '<td style="text-align:right">'
+      + '<td data-label="이름">' + esc(m.name) + '</td>'
+      + '<td data-label="전화번호" class="mono">' + esc(m.phone||"-") + '</td>'
+      + '<td data-label="등급"><span class="tier-badge" style="background:' + t.color + '">' + t.name + '</span></td>'
+      + '<td data-label="포인트" class="pts">' + m.points.toLocaleString() + 'P</td>'
+      + '<td data-label="방문">' + m.attend + '</td>'
+      + '<td data-label=" " style="text-align:right">'
       + '<button class="btn sm ghost" onclick="openPM(\'' + m.id + '\')">포인트 조정</button>'
       + '</td></tr>';
   }).join("");
@@ -620,15 +706,33 @@ document.getElementById("sendSms").addEventListener("click", function(){
 /* ══════════════════════════════════
    NAV
 ══════════════════════════════════ */
+function switchView(v, label){
+  document.querySelectorAll(".nav-item").forEach(function(b){ b.classList.remove("active"); });
+  document.querySelectorAll(".mob-nav-item").forEach(function(b){ b.classList.remove("active"); });
+  document.querySelectorAll(".nav-item[data-view='" + v + "']").forEach(function(b){ b.classList.add("active"); });
+  document.querySelectorAll(".mob-nav-item[data-view='" + v + "']").forEach(function(b){ b.classList.add("active"); });
+  document.querySelectorAll(".view").forEach(function(s){ s.classList.remove("active"); });
+  document.getElementById(v).classList.add("active");
+  document.getElementById("pageTitle").textContent = label;
+}
+
 document.querySelectorAll(".nav-item").forEach(function(btn){
   btn.addEventListener("click", function(){
-    document.querySelectorAll(".nav-item").forEach(function(b){ b.classList.remove("active"); });
-    btn.classList.add("active");
-    var v = btn.dataset.view;
-    document.querySelectorAll(".view").forEach(function(s){ s.classList.remove("active"); });
-    document.getElementById(v).classList.add("active");
-    document.getElementById("pageTitle").textContent = btn.textContent.trim();
+    switchView(btn.dataset.view, btn.textContent.trim());
   });
+});
+
+document.querySelectorAll(".mob-nav-item").forEach(function(btn){
+  btn.addEventListener("click", function(){
+    switchView(btn.dataset.view, btn.textContent.trim());
+  });
+});
+
+var mobLogoutEl = document.getElementById("mobLogoutBtn");
+if(mobLogoutEl) mobLogoutEl.addEventListener("click", async function(){
+  await sb.auth.signOut();
+  members = [];
+  showLogin();
 });
 
 /* ══════════════════════════════════
