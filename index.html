@@ -132,7 +132,7 @@
   .card .prize{margin:18px 0 10px;font-size:clamp(32px,4.4vmin,44px);font-weight:800;color:var(--cream);word-break:keep-all;}
   .card .prize.lose{color:#c4b6a0;}
   .card .msg{color:#c4b6a0;font-size:16px;margin:0 0 30px;}
-  #nextBtn{display:none;position:fixed;top:calc(2.4vmin + env(safe-area-inset-top));right:calc(2.6vmin + env(safe-area-inset-right));z-index:35;background:linear-gradient(180deg,#e93b54,var(--red));color:#fff;border:none;border-radius:28px;padding:clamp(20px,3.5vmin,44px) clamp(36px,6vmin,104px);font-size:clamp(36px,6vmin,72px);font-weight:800;cursor:pointer;font-family:var(--font);white-space:nowrap;box-shadow:0 16px 48px rgba(214,31,58,.5);-webkit-tap-highlight-color:transparent;line-height:1;}
+  #nextBtn{display:none;position:fixed;top:calc(2.4vmin + env(safe-area-inset-top));right:calc(2.6vmin + env(safe-area-inset-right));z-index:60;background:linear-gradient(180deg,#e93b54,var(--red));color:#fff;border:none;border-radius:28px;padding:clamp(20px,3.5vmin,44px) clamp(36px,6vmin,104px);font-size:clamp(36px,6vmin,72px);font-weight:800;cursor:pointer;font-family:var(--font);white-space:nowrap;box-shadow:0 16px 48px rgba(214,31,58,.5);-webkit-tap-highlight-color:transparent;line-height:1;}
   #nextBtn.show{display:flex;align-items:center;}
   canvas#fx{position:fixed;inset:0;pointer-events:none;z-index:40;}
 
@@ -234,7 +234,6 @@
   <div class="corner">
     <button class="icon-btn" id="soundBtn" title="효과음">🔊</button>
     <button class="icon-btn" id="gearBtn" title="옵션 설정">⚙</button>
-    <button type="button" id="nextBtn">다음 손님</button>
   </div>
   <div class="wrap">
     <div class="col-wheel">
@@ -548,5 +547,6 @@
   $("numpad").addEventListener("click",function(e){if(e.target===this)hideNumpad();});
 })();
 </script>
+<button type="button" id="nextBtn">다음 손님</button>
 </body>
 </html>
