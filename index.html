@@ -134,6 +134,23 @@
   .card .msg{color:#c4b6a0;font-size:16px;margin:0 0 30px;}
   canvas#fx{position:fixed;inset:0;pointer-events:none;z-index:40;}
 
+  /* ── 회원번호 키패드 ── */
+  #memberNum{cursor:pointer;font-size:clamp(22px,2.8vmin,30px);font-weight:800;letter-spacing:.18em;color:var(--ink);}
+  #memberNum:focus{outline:none;}
+  .numpad-overlay{display:none;position:fixed;inset:0;z-index:45;background:rgba(28,22,17,.52);align-items:center;justify-content:center;padding:20px;}
+  .numpad-overlay.show{display:flex;}
+  .numpad-panel{background:var(--white);border-radius:28px;padding:28px 22px 22px;width:100%;max-width:390px;box-shadow:0 30px 70px rgba(0,0,0,.45);}
+  .numpad-title{text-align:center;font-size:clamp(16px,2vmin,20px);font-weight:800;color:var(--ink);margin-bottom:14px;letter-spacing:-.01em;}
+  .numpad-display{background:var(--cream);border:1.5px solid var(--line);border-radius:14px;padding:14px 18px;font-size:clamp(28px,4vmin,38px);font-weight:800;text-align:center;letter-spacing:.2em;color:var(--ink);margin-bottom:18px;min-height:66px;display:flex;align-items:center;justify-content:center;}
+  .numpad-display.empty{color:var(--ink-soft);font-weight:400;font-size:clamp(14px,1.8vmin,17px);letter-spacing:0;}
+  .numpad-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(8px,1.4vmin,14px);margin-bottom:clamp(8px,1.2vmin,12px);}
+  .npk{border:none;background:var(--cream-2);border-radius:50%;aspect-ratio:1/1;font-size:clamp(22px,3vmin,34px);font-weight:700;color:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:var(--font);transition:transform .1s,background .1s;padding:0;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
+  .npk:active{transform:scale(.88);background:var(--line);}
+  .npk-del{background:var(--white);border:1.5px solid var(--line);color:var(--ink-soft);font-size:clamp(18px,2.4vmin,28px);}
+  .npk-clr{background:var(--white);border:1.5px solid var(--line);color:var(--red);font-size:clamp(14px,1.8vmin,20px);font-weight:800;}
+  .npk-done{width:100%;border:none;border-radius:14px;padding:clamp(14px,1.8vmin,19px);background:linear-gradient(180deg,#e93b54,var(--red));color:#fff;font-size:clamp(16px,2.1vmin,21px);font-weight:800;cursor:pointer;font-family:var(--font);box-shadow:0 8px 20px rgba(214,31,58,.3);-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
+  .npk-done:active{transform:translateY(1px);}
+
   @media (orientation:portrait){
     .wrap{flex-direction:column;height:auto;min-height:100vh;justify-content:center;}
     html,body{overflow:auto;}
@@ -167,6 +184,10 @@
         <div class="field">
           <label for="phone">전화번호</label>
           <input id="phone" type="tel" inputmode="numeric" placeholder="010-0000-0000" autocomplete="tel" maxlength="13">
+        </div>
+        <div class="field">
+          <label for="memberNum">회원번호 <em style="font-size:.82em;color:var(--ink-soft);font-weight:400">(선택)</em></label>
+          <input id="memberNum" type="text" placeholder="탭해서 입력" readonly inputmode="none" autocomplete="off">
         </div>
         <div class="consent">
           <h3>개인정보 수집·이용 동의</h3>
@@ -233,6 +254,28 @@
     <p class="msg" id="prizeMsg"></p>
   </div>
 </div>
+<!-- ═══ 회원번호 키패드 ═══ -->
+<div id="numpad" class="numpad-overlay">
+  <div class="numpad-panel">
+    <div class="numpad-title">회원번호를 눌러 주세요</div>
+    <div class="numpad-display empty" id="numpadDisplay">회원번호</div>
+    <div class="numpad-grid">
+      <button type="button" class="npk" data-k="7">7</button>
+      <button type="button" class="npk" data-k="8">8</button>
+      <button type="button" class="npk" data-k="9">9</button>
+      <button type="button" class="npk" data-k="4">4</button>
+      <button type="button" class="npk" data-k="5">5</button>
+      <button type="button" class="npk" data-k="6">6</button>
+      <button type="button" class="npk" data-k="1">1</button>
+      <button type="button" class="npk" data-k="2">2</button>
+      <button type="button" class="npk" data-k="3">3</button>
+      <button type="button" class="npk npk-del" data-k="del">⌫</button>
+      <button type="button" class="npk" data-k="0">0</button>
+      <button type="button" class="npk npk-clr" data-k="clr">C</button>
+    </div>
+    <button type="button" class="npk-done" id="numpadDone">완료</button>
+  </div>
+</div>
 <canvas id="fx"></canvas>
 
 <script>
@@ -247,6 +290,7 @@
   var $=function(id){return document.getElementById(id);};
   /* ---------- signup ---------- */
   var member=null;
+  var memberNum="";
   $("phone").addEventListener("input",function(e){
     var v=e.target.value.replace(/\D/g,"").slice(0,11);
     if(v.length>=11) v=v.replace(/(\d{3})(\d{4})(\d{4})/,"$1-$2-$3");
@@ -274,6 +318,8 @@
   };
   function resetSignup(){
     $("name").value="";$("phone").value="";$("agree").checked=false;fail("");
+    memberNum="";$("memberNum").value="";
+    $("numpadDisplay").textContent="회원번호";$("numpadDisplay").classList.add("empty");
     $("game").classList.remove("active");$("signup").classList.add("active");
     rotation=-Math.PI/2;
   }
@@ -426,6 +472,42 @@
   window.addEventListener("resize",function(){resize();fxResize();});
   window.addEventListener("orientationchange",function(){setTimeout(function(){resize();fxResize();},250);});
   renderOpts();
+
+  /* ── 회원번호 키패드 ── */
+  var MAX_NUM_LEN = 6;
+  function updateNumDisplay(){
+    var el = $("numpadDisplay");
+    if(memberNum){
+      el.textContent = memberNum;
+      el.classList.remove("empty");
+    } else {
+      el.textContent = "회원번호";
+      el.classList.add("empty");
+    }
+    $("memberNum").value = memberNum;
+  }
+  function showNumpad(){ $("numpad").classList.add("show"); }
+  function hideNumpad(){ $("numpad").classList.remove("show"); }
+
+  var mnEl = $("memberNum");
+  mnEl.addEventListener("mouseenter", showNumpad);
+  mnEl.addEventListener("click", function(e){ e.preventDefault(); showNumpad(); });
+  mnEl.addEventListener("touchstart", function(e){ e.preventDefault(); showNumpad(); }, {passive:false});
+  mnEl.addEventListener("focus", function(){ this.blur(); showNumpad(); });
+
+  document.querySelectorAll(".npk").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var k = btn.dataset.k;
+      if(k === "del"){ memberNum = memberNum.slice(0,-1); }
+      else if(k === "clr"){ memberNum = ""; }
+      else if(memberNum.length < MAX_NUM_LEN){ memberNum += k; }
+      updateNumDisplay();
+    });
+  });
+
+  $("numpadDone").addEventListener("click", hideNumpad);
+  $("numpad").addEventListener("click", function(e){ if(e.target === this) hideNumpad(); });
+
 })();
 </script>
 </body>
