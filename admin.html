@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
@@ -255,6 +255,7 @@
   <button class="mob-nav-item" data-view="customers">☻ 고객</button>
   <button class="mob-nav-item" data-view="tiers">★ 등급</button>
   <button class="mob-nav-item" data-view="sms">✉ 문자</button>
+  <button class="mob-nav-item" data-view="wheel">🎡 원반설정</button>
   <button class="mob-logout-btn" id="mobLogoutBtn">로그아웃</button>
 </div>
 
@@ -268,6 +269,7 @@
     <button class="nav-item" data-view="customers"><span class="ic">☻</span>고객 관리</button>
     <button class="nav-item" data-view="tiers"><span class="ic">★</span>등급 관리</button>
     <button class="nav-item" data-view="sms"><span class="ic">✉</span>행사 문자</button>
+    <button class="nav-item" data-view="wheel"><span class="ic">🎡</span>원반설정</button>
   </nav>
   <div class="side-foot">SOCURI Coffee · Admin<br>고객·포인트·문자</div>
 </aside>
@@ -356,6 +358,22 @@
             </div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- 원반설정 -->
+    <section class="view" id="wheel">
+      <div class="card" style="padding:36px;text-align:center;">
+        <h2 class="sec" style="font-size:20px;">🎡 원반설정</h2>
+        <p style="color:var(--ink-soft);margin-top:14px;font-size:15px;">원반 상품 및 당첨확률 설정 (준비 중)</p>
+      </div>
+    </section>
+
+    <!-- 공간예약 -->
+    <section class="view" id="booking">
+      <div class="card" style="padding:36px;text-align:center;">
+        <h2 class="sec" style="font-size:20px;">📅 공간예약</h2>
+        <p style="color:var(--ink-soft);margin-top:14px;font-size:15px;">공간예약 (준비 중)</p>
       </div>
     </section>
 
@@ -714,6 +732,7 @@ function switchView(v, label){
   document.querySelectorAll(".view").forEach(function(s){ s.classList.remove("active"); });
   document.getElementById(v).classList.add("active");
   document.getElementById("pageTitle").textContent = label;
+  var _bb=document.getElementById("bookingBtn");if(_bb)_bb.classList.toggle("active",v==="booking");
 }
 
 document.querySelectorAll(".nav-item").forEach(function(btn){
@@ -727,6 +746,9 @@ document.querySelectorAll(".mob-nav-item").forEach(function(btn){
     switchView(btn.dataset.view, btn.textContent.trim());
   });
 });
+
+var bookingBtn = document.getElementById("bookingBtn");
+if(bookingBtn) bookingBtn.addEventListener("click", function(){ switchView("booking", "공간예약"); });
 
 var mobLogoutEl = document.getElementById("mobLogoutBtn");
 if(mobLogoutEl) mobLogoutEl.addEventListener("click", async function(){
@@ -753,5 +775,12 @@ if(mobLogoutEl) mobLogoutEl.addEventListener("click", async function(){
 
 })();
 </script>
+<div id="bottomBar">
+  <div class="bar-brand">
+    <div class="bar-logo">S</div>
+    <div><div class="bar-label">SOCURI Coffee</div><div class="bar-sub">고객 · 포인트 · 문자</div></div>
+  </div>
+  <button class="bar-booking" id="bookingBtn">📅 공간예약</button>
+</div>
 </body>
 </html>
