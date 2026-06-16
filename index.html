@@ -132,10 +132,6 @@
   .card .prize{margin:18px 0 10px;font-size:clamp(32px,4.4vmin,44px);font-weight:800;color:var(--cream);word-break:keep-all;}
   .card .prize.lose{color:#c4b6a0;}
   .card .msg{color:#c4b6a0;font-size:16px;margin:0 0 30px;}
-  .card .row{display:flex;}
-  .card .row .btn{flex:1;padding:18px 0;border-radius:15px;font-weight:700;font-size:17px;cursor:pointer;border:1px solid rgba(205,162,76,.3);}
-  .card .row .ghost{background:transparent;color:var(--cream);margin-right:11px;}
-  .card .row .gold{background:linear-gradient(180deg,#f6d680,var(--brass));color:#3a2a0d;border:none;}
   canvas#fx{position:fixed;inset:0;pointer-events:none;z-index:40;}
 
   @media (orientation:portrait){
@@ -235,10 +231,6 @@
     <div class="label">결과</div>
     <div class="prize" id="prizeText">—</div>
     <p class="msg" id="prizeMsg"></p>
-    <div class="row">
-      <button class="btn ghost" id="closeBtn">다음 손님</button>
-      <button class="btn gold" id="againBtn">다시 돌리기</button>
-    </div>
   </div>
 </div>
 <canvas id="fx"></canvas>
@@ -430,8 +422,7 @@
   $("gearBtn").onclick=function(){$("panel").classList.toggle("open");$("gearBtn").classList.toggle("on");};
   $("closeP").onclick=function(){$("panel").classList.remove("open");$("gearBtn").classList.remove("on");};
   $("soundBtn").onclick=function(){soundOn=!soundOn;var b=$("soundBtn");b.textContent=soundOn?"🔊":"🔇";b.classList.toggle("on",soundOn);};
-  $("closeBtn").onclick=function(){$("modal").classList.remove("show");resetSignup();};
-  $("againBtn").onclick=function(){$("modal").classList.remove("show");setTimeout(spin,250);};
+  $("modal").addEventListener("click",function(){$("modal").classList.remove("show");resetSignup();});
   window.addEventListener("resize",function(){resize();fxResize();});
   window.addEventListener("orientationchange",function(){setTimeout(function(){resize();fxResize();},250);});
   renderOpts();
