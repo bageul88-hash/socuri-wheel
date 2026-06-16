@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOCURI Admin · 고객등급 · 포인트 · 문자</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --red:#d61f3a; --green:#6fa52d; --green-soft:#8dc63f;
+    --cream:#f7f3ec; --paper:#fffdf8; --ink:#2c2018; --ink-soft:#7a6a59; --line:#ece3d3;
+    --espresso:#1c1611; --espresso-2:#272019; --brass:#cda24c;
+    --teal:#3792a0; --gray:#9b9183; --amber:#e0922e; --purple:#9b6fd6;
+    --font:'Pretendard','Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{font-family:var(--font);background:var(--cream);color:var(--ink);display:flex;min-height:100vh;font-size:14px;}
+
+  /* ── Login Screen ── */
+  #loginScreen{
+    position:fixed;inset:0;background:radial-gradient(120% 100% at 30% 0%,#fbf7ef,var(--cream));
+    display:flex;align-items:center;justify-content:center;z-index:200;
+  }
+  .login-box{
+    background:var(--paper);border-radius:24px;padding:42px 36px;width:100%;max-width:380px;
+    box-shadow:0 30px 70px rgba(0,0,0,.15);
+  }
+  .login-logo{
+    width:56px;height:56px;border-radius:50%;background:var(--red);display:flex;
+    align-items:center;justify-content:center;margin:0 auto 14px;
+    font-size:24px;font-weight:900;color:#fff;
+  }
+  .login-title{font-size:20px;font-weight:800;color:var(--espresso);text-align:center;}
+  .login-sub{font-size:13px;color:var(--ink-soft);text-align:center;margin-top:4px;margin-bottom:28px;}
+
+  /* ── Layout ── */
+  #adminWrap{display:none;width:100%;flex:1;}
+  .side{width:230px;flex:0 0 230px;background:var(--espresso);color:#e9ddca;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;}
+  .brand{display:flex;align-items:center;padding:20px 18px;border-bottom:1px solid rgba(205,162,76,.18);}
+  .brand .logo{width:40px;height:40px;border-radius:50%;overflow:hidden;background:var(--red);margin-right:11px;flex:0 0 auto;box-shadow:0 3px 8px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:#fff;}
+  .brand b{font-size:15px;color:#fff;line-height:1.2;}
+  .brand small{display:block;color:var(--brass);font-size:11px;letter-spacing:.12em;}
+  nav{padding:12px 10px;flex:1;}
+  .nav-item{display:flex;align-items:center;width:100%;border:none;background:none;color:#cdbfa8;padding:12px 13px;border-radius:11px;font-size:14px;font-weight:600;cursor:pointer;text-align:left;margin-bottom:3px;font-family:var(--font);}
+  .nav-item .ic{width:20px;margin-right:11px;text-align:center;}
+  .nav-item:hover{background:rgba(255,255,255,.05);color:#fff;}
+  .nav-item.active{background:var(--red);color:#fff;}
+  .side-foot{padding:14px 18px;border-top:1px solid rgba(205,162,76,.18);font-size:12px;color:#8c7c66;}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:18px 28px;background:var(--paper);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;}
+  .topbar h1{margin:0;font-size:20px;font-weight:800;}
+  .topbar .who{font-size:13px;color:var(--ink-soft);}
+  .topbar .who b{color:var(--ink);}
+  .content{padding:24px 28px 50px;}
+  .view{display:none;}
+  .view.active{display:block;animation:fade .2s;}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* ── Components ── */
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:16px;}
+  .btn{border:none;border-radius:11px;padding:10px 16px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:var(--font);}
+  .btn.red{background:var(--red);color:#fff;}
+  .btn.dark{background:var(--espresso);color:#fff;}
+  .btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);}
+  .btn.green{background:var(--green);color:#fff;}
+  .btn.sm{padding:7px 11px;font-size:12.5px;border-radius:9px;}
+  .btn:active{transform:translateY(1px);}
+  h2.sec{font-size:16px;margin:0 0 14px;font-weight:800;}
+
+  /* ── Stats ── */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px;}
+  .stat{padding:18px;}
+  .stat .lab{font-size:12.5px;color:var(--ink-soft);font-weight:600;}
+  .stat .num{font-size:28px;font-weight:800;margin-top:6px;}
+  .stat .num small{font-size:14px;color:var(--ink-soft);margin-left:3px;}
+
+  /* ── Table ── */
+  .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px;flex-wrap:wrap;}
+  .search{flex:1;max-width:300px;border:1px solid var(--line);background:#fff;border-radius:11px;padding:11px 14px;font-size:14px;font-family:var(--font);}
+  table{width:100%;border-collapse:collapse;background:var(--paper);border-radius:16px;overflow:hidden;}
+  th,td{padding:13px 16px;text-align:left;font-size:13.5px;border-bottom:1px solid var(--line);}
+  th{background:#f3ece0;font-size:12.5px;color:var(--ink-soft);font-weight:700;}
+  tr:last-child td{border-bottom:none;}
+  .mono{font-variant-numeric:tabular-nums;}
+  .pts{font-weight:800;color:var(--green);}
+  .tier-badge{display:inline-block;font-size:11.5px;font-weight:800;padding:4px 11px;border-radius:20px;color:#fff;}
+
+  /* ── Tier cards ── */
+  .tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+  .tcard{padding:20px;border-top:4px solid;}
+  .tcard h3{margin:0 0 4px;font-size:18px;}
+  .tcard .cnt{font-size:12.5px;color:var(--ink-soft);margin-bottom:14px;}
+  .tcard .field{margin-bottom:11px;}
+  .tcard .field label{display:block;font-size:11.5px;font-weight:700;color:var(--ink-soft);margin-bottom:5px;}
+  .tcard .field input{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 10px;font-size:13.5px;font-family:var(--font);}
+
+  /* ── SMS ── */
+  .smswrap{display:grid;grid-template-columns:1fr 360px;gap:16px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:13px;font-weight:700;margin:0 0 7px;}
+  .inp{width:100%;border:1px solid var(--line);background:#fff;border-radius:11px;padding:12px 13px;font-size:14px;font-family:var(--font);}
+  textarea.inp{resize:vertical;min-height:120px;}
+  select.inp{appearance:none;}
+  .targets{display:flex;flex-wrap:wrap;gap:8px;}
+  .tg-btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);display:flex;align-items:center;}
+  .tg-btn .d{width:10px;height:10px;border-radius:3px;margin-right:7px;}
+  .tg-btn.on{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .vars{font-size:12px;color:var(--ink-soft);margin-top:6px;}
+  .vars code{background:#f0e9dd;padding:2px 6px;border-radius:5px;color:var(--red);font-weight:700;}
+  .preview{background:#eef4ff;border:1px solid #d3e0fb;border-radius:13px;padding:14px;font-size:13.5px;line-height:1.6;white-space:pre-wrap;color:#26344f;}
+  .count-note{font-size:13px;margin:0 0 12px;}
+  .count-note b{color:var(--red);font-size:16px;}
+  .lunchrow{display:flex;align-items:center;justify-content:space-between;background:#f3ece0;border-radius:11px;padding:12px 14px;margin:14px 0;}
+  .toggle{position:relative;width:44px;height:25px;border-radius:20px;background:#d8cdbb;cursor:pointer;transition:.2s;flex:0 0 auto;}
+  .toggle.on{background:var(--green-soft);}
+  .toggle::after{content:"";position:absolute;top:3px;left:3px;width:19px;height:19px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+  .toggle.on::after{left:22px;}
+  .logs .lg{display:flex;justify-content:space-between;padding:11px 16px;border-bottom:1px solid var(--line);font-size:13px;}
+  .logs .lg:last-child{border-bottom:none;}
+
+  /* ── Modal ── */
+  .overlay{position:fixed;inset:0;background:rgba(28,22,17,.5);display:none;align-items:center;justify-content:center;z-index:50;padding:20px;}
+  .overlay.show{display:flex;}
+  .modal{background:var(--paper);border-radius:20px;width:100%;max-width:420px;box-shadow:0 30px 70px rgba(0,0,0,.4);}
+  .modal .mh{padding:20px 22px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;}
+  .modal .mh h3{margin:0;font-size:17px;}
+  .modal .mh .x{border:none;background:none;font-size:24px;cursor:pointer;color:var(--ink-soft);}
+  .modal .mb{padding:20px 22px;}
+  .modal .mf{padding:16px 22px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px;}
+  .adj{display:flex;gap:8px;margin-bottom:14px;}
+  .adj button{flex:1;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px;font-weight:700;cursor:pointer;font-family:var(--font);font-size:13px;}
+  .adj button.on{background:var(--ink);color:#fff;border-color:var(--ink);}
+
+  /* ── Toast ── */
+  #toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:13px 22px;border-radius:30px;font-size:13.5px;font-weight:700;opacity:0;transition:.3s;z-index:80;pointer-events:none;}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  @media(max-width:900px){
+    body{flex-direction:column;}
+    .side{width:100%;flex:none;height:auto;flex-direction:row;align-items:center;overflow-x:auto;}
+    nav{display:flex;padding:8px;}
+    .nav-item{white-space:nowrap;margin:0 3px;}
+    .side-foot,.brand small{display:none;}
+    .stats,.tiers{grid-template-columns:1fr 1fr;}
+    .smswrap{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══ LOGIN SCREEN ═══ -->
+<div id="loginScreen">
+  <div class="login-box">
+    <div class="login-logo">S</div>
+    <div class="login-title">SOCURI Admin</div>
+    <div class="login-sub">관리자 전용 로그인</div>
+    <div class="field">
+      <label>이메일</label>
+      <input class="inp" id="loginEmail" type="email" placeholder="admin@example.com" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>비밀번호</label>
+      <input class="inp" id="loginPw" type="password" placeholder="비밀번호" autocomplete="current-password">
+    </div>
+    <p id="loginErr" style="color:var(--red);font-size:13px;margin:0 0 14px;min-height:18px;"></p>
+    <button class="btn red" id="loginBtn" style="width:100%;padding:14px;font-size:15px;">로그인</button>
+  </div>
+</div>
+
+<!-- ═══ ADMIN WRAP ═══ -->
+<div id="adminWrap">
+
+<aside class="side">
+  <div class="brand">
+    <div class="logo">S</div>
+    <div><b>SOCURI</b><small>ADMIN</small></div>
+  </div>
+  <nav>
+    <button class="nav-item active" data-view="dash"><span class="ic">▦</span>대시보드</button>
+    <button class="nav-item" data-view="customers"><span class="ic">☻</span>고객 관리</button>
+    <button class="nav-item" data-view="tiers"><span class="ic">★</span>등급 관리</button>
+    <button class="nav-item" data-view="sms"><span class="ic">✉</span>행사 문자</button>
+  </nav>
+  <div class="side-foot">SOCURI Coffee · Admin<br>고객·포인트·문자</div>
+</aside>
+
+<div class="main">
+  <div class="topbar">
+    <h1 id="pageTitle">대시보드</h1>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <div class="who">관리자 <b id="adminEmail">-</b></div>
+      <button class="btn sm ghost" id="logoutBtn">로그아웃</button>
+    </div>
+  </div>
+  <div class="content">
+
+    <!-- DASHBOARD -->
+    <section class="view active" id="dash">
+      <div class="stats" id="dashStats"></div>
+      <div class="card" style="padding:20px;">
+        <h2 class="sec">등급별 고객 분포</h2>
+        <div id="dashBars"></div>
+      </div>
+    </section>
+
+    <!-- CUSTOMERS -->
+    <section class="view" id="customers">
+      <div class="toolbar">
+        <input class="search" id="custSearch" placeholder="이름 또는 전화번호 검색">
+        <span class="who" style="color:var(--ink-soft)">등급은 누적 포인트로 자동 산정됩니다</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>이름</th><th>전화번호</th><th>등급</th>
+            <th>포인트</th><th>방문</th><th style="text-align:right">포인트 조정</th>
+          </tr>
+        </thead>
+        <tbody id="custBody"></tbody>
+      </table>
+    </section>
+
+    <!-- TIERS -->
+    <section class="view" id="tiers">
+      <h2 class="sec">등급 관리 — 기준 포인트와 혜택을 설정하세요</h2>
+      <div class="tiers" id="tierCards"></div>
+      <div style="margin-top:16px;">
+        <button class="btn red" id="saveTiers">등급 설정 저장</button>
+      </div>
+    </section>
+
+    <!-- SMS (Phase 3-B에서 연결) -->
+    <section class="view" id="sms">
+      <div class="smswrap">
+        <div>
+          <div class="card" style="padding:20px;">
+            <h2 class="sec">행사 문자 보내기</h2>
+            <div class="field">
+              <label>행사 카테고리</label>
+              <select class="inp" id="smsCat"></select>
+            </div>
+            <div class="field">
+              <label>받는 등급 (복수 선택)</label>
+              <div class="targets" id="smsTargets"></div>
+            </div>
+            <div class="field">
+              <label>내용</label>
+              <textarea class="inp" id="smsBody">[SOCURI Coffee] {이름}님({등급})! 이번 주 행사 안내드려요 ☕ (무료수신거부 0808-000-000)</textarea>
+              <div class="vars">치환 변수: <code>{이름}</code> <code>{등급}</code> <code>{포인트}</code></div>
+            </div>
+            <div class="lunchrow">
+              <span style="font-weight:600">점심시간(11:30~13:00) 자동 회피</span>
+              <div class="toggle on" id="smsLunch"></div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="card" style="padding:18px;margin-bottom:16px;">
+            <p class="count-note">예상 발송 <b id="smsCount">0</b>건</p>
+            <label style="font-size:13px;font-weight:700;display:block;margin-bottom:7px;">미리보기</label>
+            <div class="preview" id="smsPreview"></div>
+            <button class="btn green" id="sendSms" style="width:100%;margin-top:14px;padding:14px;">문자 발송 (Phase 3-B)</button>
+          </div>
+          <div class="card" style="padding:18px;">
+            <label style="font-size:13px;font-weight:700;display:block;margin-bottom:10px;">최근 발송 내역</label>
+            <div class="logs" id="smsLogs">
+              <p style="color:var(--ink-soft);font-size:13px;padding:8px 0">발송 내역이 없습니다</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /adminWrap -->
+
+<!-- ═══ POINT MODAL ═══ -->
+<div class="overlay" id="ovPoint">
+  <div class="modal">
+    <div class="mh">
+      <h3 id="pmName">포인트 조정</h3>
+      <button class="x" data-close>×</button>
+    </div>
+    <div class="mb">
+      <div class="adj">
+        <button class="on" data-mode="add">＋ 적립</button>
+        <button data-mode="sub">－ 차감</button>
+      </div>
+      <div class="field">
+        <label>포인트</label>
+        <input class="inp" id="pmAmt" type="number" inputmode="numeric" value="10" min="1">
+      </div>
+      <div class="field">
+        <label>사유</label>
+        <input class="inp" id="pmReason" placeholder="예: 출석 적립 / 음료 교환">
+      </div>
+      <p style="font-size:13px;color:var(--ink-soft);margin:0">
+        현재 <b id="pmCur">0</b>P → 변경 후 <b id="pmAfter" style="color:var(--green)">0</b>P
+        (<span id="pmTier"></span>)
+      </p>
+    </div>
+    <div class="mf">
+      <button class="btn ghost" data-close>취소</button>
+      <button class="btn red" id="pmApply">적용</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ── Supabase ── */
+var SUPABASE_URL = "https://spiqanngbnynxgaxjssb.supabase.co";
+var SUPABASE_KEY = "sb_publishable_VC6CPNa7jow79OeHsF8EIw_9vfgb-pk";
+var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+/* ── Tier config (local, editable) ── */
+var tierCfg = [
+  {name:"씨앗",  min:0,   color:"#e0922e", benefit:"기본 혜택"},
+  {name:"새싹",  min:100, color:"#6fa52d", benefit:"음료 5% 할인"},
+  {name:"열매",  min:300, color:"#3792a0", benefit:"음료 10% 할인"}
+];
+
+function getTier(pts){
+  var t = tierCfg[0];
+  for(var i=0;i<tierCfg.length;i++){ if(pts >= tierCfg[i].min) t = tierCfg[i]; }
+  return t;
+}
+
+/* ── State ── */
+var members = [];
+var pmMemberId = null;
+var pmMode = "add";
+var custFilter = "";
+
+/* ── Toast ── */
+function toast(msg){
+  var el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  setTimeout(function(){ el.classList.remove("show"); }, 2500);
+}
+
+/* ══════════════════════════════════
+   AUTH
+══════════════════════════════════ */
+function showLogin(){
+  document.getElementById("loginScreen").style.display = "flex";
+  document.getElementById("adminWrap").style.display = "none";
+}
+function showAdmin(email){
+  document.getElementById("loginScreen").style.display = "none";
+  document.getElementById("adminWrap").style.display = "flex";
+  if(email) document.getElementById("adminEmail").textContent = email;
+}
+
+document.getElementById("loginBtn").addEventListener("click", doLogin);
+document.getElementById("loginPw").addEventListener("keydown", function(e){
+  if(e.key === "Enter") doLogin();
+});
+
+async function doLogin(){
+  var email = document.getElementById("loginEmail").value.trim();
+  var pw    = document.getElementById("loginPw").value;
+  document.getElementById("loginErr").textContent = "";
+  if(!email || !pw){
+    document.getElementById("loginErr").textContent = "이메일과 비밀번호를 입력해주세요.";
+    return;
+  }
+  var res = await sb.auth.signInWithPassword({email:email, password:pw});
+  if(res.error){
+    document.getElementById("loginErr").textContent = "로그인 실패: " + res.error.message;
+  } else {
+    showAdmin(email);
+    loadData();
+    renderTierCards();
+    updateSmsPreview();
+  }
+}
+
+document.getElementById("logoutBtn").addEventListener("click", async function(){
+  await sb.auth.signOut();
+  members = [];
+  showLogin();
+});
+
+/* ══════════════════════════════════
+   DATA
+══════════════════════════════════ */
+async function loadData(){
+  var res = await sb.from("members").select("*").order("created_at", {ascending:false});
+  if(res.error){ toast("데이터 로드 실패: " + res.error.message); return; }
+  members = (res.data || []).map(function(m){
+    return Object.assign({}, m, {
+      points: m.points || 0,
+      attend: m.attend_count || 0
+    });
+  });
+  renderDash();
+  renderCustomers();
+  renderTierCards();
+  updateSmsPreview();
+}
+
+/* ══════════════════════════════════
+   DASHBOARD
+══════════════════════════════════ */
+function renderDash(){
+  var total = members.length;
+  var totalPts = members.reduce(function(s,m){ return s + m.points; }, 0);
+  var avgPts = total ? Math.round(totalPts / total) : 0;
+
+  var tierCounts = {};
+  tierCfg.forEach(function(t){ tierCounts[t.name] = 0; });
+  members.forEach(function(m){ tierCounts[getTier(m.points).name]++; });
+
+  document.getElementById("dashStats").innerHTML =
+    stat("전체 회원", total, "명") +
+    stat("총 포인트", totalPts.toLocaleString(), "P") +
+    stat("평균 포인트", avgPts, "P") +
+    stat("등록 등급", Object.keys(tierCounts).length, "단계");
+
+  var bars = tierCfg.map(function(t){
+    var cnt = tierCounts[t.name] || 0;
+    var pct = total ? Math.round(cnt / total * 100) : 0;
+    return '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">'
+      + '<span style="width:50px;font-size:13px;font-weight:700">' + t.name + '</span>'
+      + '<div style="flex:1;background:#f0e9dd;border-radius:8px;height:22px;overflow:hidden;">'
+      + '<div style="height:100%;width:' + pct + '%;background:' + t.color + ';border-radius:8px;transition:.4s;"></div>'
+      + '</div>'
+      + '<span style="width:80px;font-size:13px;color:var(--ink-soft)">' + cnt + '명 (' + pct + '%)</span>'
+      + '</div>';
+  }).join("");
+  document.getElementById("dashBars").innerHTML = bars;
+}
+
+function stat(lab, num, unit){
+  return '<div class="card stat">'
+    + '<div class="lab">' + lab + '</div>'
+    + '<div class="num">' + num + '<small>' + unit + '</small></div>'
+    + '</div>';
+}
+
+/* ══════════════════════════════════
+   CUSTOMERS
+══════════════════════════════════ */
+document.getElementById("custSearch").addEventListener("input", function(e){
+  custFilter = e.target.value;
+  renderCustomers();
+});
+
+function renderCustomers(){
+  var list = members.filter(function(m){
+    return m.name.includes(custFilter) || (m.phone||"").includes(custFilter);
+  });
+  if(!list.length){
+    document.getElementById("custBody").innerHTML =
+      '<tr><td colspan="6" style="text-align:center;color:var(--ink-soft);padding:28px">회원이 없습니다</td></tr>';
+    return;
+  }
+  document.getElementById("custBody").innerHTML = list.map(function(m){
+    var t = getTier(m.points);
+    return '<tr>'
+      + '<td>' + esc(m.name) + '</td>'
+      + '<td class="mono">' + esc(m.phone||"-") + '</td>'
+      + '<td><span class="tier-badge" style="background:' + t.color + '">' + t.name + '</span></td>'
+      + '<td class="pts">' + m.points.toLocaleString() + 'P</td>'
+      + '<td>' + m.attend + '</td>'
+      + '<td style="text-align:right">'
+      + '<button class="btn sm ghost" onclick="openPM(\'' + m.id + '\')">포인트 조정</button>'
+      + '</td></tr>';
+  }).join("");
+}
+
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+/* ══════════════════════════════════
+   POINT MODAL
+══════════════════════════════════ */
+window.openPM = function(id){
+  pmMemberId = id;
+  pmMode = "add";
+  var m = members.find(function(x){ return x.id === id; });
+  if(!m) return;
+  document.getElementById("pmName").textContent = m.name + " 포인트 조정";
+  document.getElementById("pmCur").textContent = m.points.toLocaleString();
+  document.getElementById("pmAmt").value = 10;
+  document.getElementById("pmReason").value = "";
+  document.querySelectorAll(".adj button").forEach(function(b){ b.classList.remove("on"); });
+  document.querySelector('.adj button[data-mode="add"]').classList.add("on");
+  updateAfter();
+  document.getElementById("ovPoint").classList.add("show");
+};
+
+function updateAfter(){
+  var m = members.find(function(x){ return x.id === pmMemberId; });
+  if(!m) return;
+  var amt = parseInt(document.getElementById("pmAmt").value) || 0;
+  var newPts = pmMode === "add" ? m.points + amt : Math.max(0, m.points - amt);
+  document.getElementById("pmAfter").textContent = newPts.toLocaleString();
+  document.getElementById("pmTier").textContent = getTier(newPts).name;
+}
+
+document.getElementById("pmAmt").addEventListener("input", updateAfter);
+
+document.querySelectorAll(".adj button").forEach(function(btn){
+  btn.addEventListener("click", function(){
+    pmMode = btn.dataset.mode;
+    document.querySelectorAll(".adj button").forEach(function(b){ b.classList.remove("on"); });
+    btn.classList.add("on");
+    updateAfter();
+  });
+});
+
+document.getElementById("pmApply").addEventListener("click", async function(){
+  var m = members.find(function(x){ return x.id === pmMemberId; });
+  if(!m) return;
+  var amt = parseInt(document.getElementById("pmAmt").value) || 0;
+  var reason = document.getElementById("pmReason").value.trim() || "관리자 조정";
+  var delta = pmMode === "add" ? amt : -amt;
+  var newPts = Math.max(0, m.points + delta);
+
+  var r1 = await sb.from("members").update({points: newPts}).eq("id", m.id);
+  if(r1.error){ toast("오류: " + r1.error.message); return; }
+
+  await sb.from("point_logs").insert({member_id: m.id, delta: delta, reason: reason})
+    .catch(function(){});
+
+  document.getElementById("ovPoint").classList.remove("show");
+  toast(m.name + "님 포인트 업데이트 완료");
+  loadData();
+});
+
+document.querySelectorAll("[data-close]").forEach(function(el){
+  el.addEventListener("click", function(){
+    document.getElementById("ovPoint").classList.remove("show");
+  });
+});
+
+/* ══════════════════════════════════
+   TIERS
+══════════════════════════════════ */
+function renderTierCards(){
+  document.getElementById("tierCards").innerHTML = tierCfg.map(function(t, i){
+    var cnt = members.filter(function(m){ return getTier(m.points).name === t.name; }).length;
+    return '<div class="card tcard" style="border-top-color:' + t.color + '">'
+      + '<h3>' + t.name + '</h3>'
+      + '<div class="cnt">' + cnt + '명</div>'
+      + '<div class="field"><label>최소 포인트</label>'
+      + '<input class="inp" value="' + t.min + '" data-ti="' + i + '" data-f="min"></div>'
+      + '<div class="field"><label>혜택 설명</label>'
+      + '<input class="inp" value="' + esc(t.benefit) + '" data-ti="' + i + '" data-f="benefit"></div>'
+      + '</div>';
+  }).join("");
+
+  document.querySelectorAll(".tcard .inp").forEach(function(inp){
+    inp.addEventListener("change", function(){
+      var i = parseInt(inp.dataset.ti);
+      var f = inp.dataset.f;
+      if(f === "min") tierCfg[i].min = parseInt(inp.value) || 0;
+      else tierCfg[i][f] = inp.value;
+    });
+  });
+}
+
+document.getElementById("saveTiers").addEventListener("click", function(){
+  renderTierCards();
+  renderCustomers();
+  renderDash();
+  renderSmsTargets();
+  updateSmsPreview();
+  toast("등급 설정이 저장되었습니다");
+});
+
+/* ══════════════════════════════════
+   SMS (Phase 3-B — UI only)
+══════════════════════════════════ */
+var smsCats = ["봄 시즌 음료","여름 한정 메뉴","가을 신메뉴","겨울 특별 이벤트","생일 축하","기타 행사"];
+document.getElementById("smsCat").innerHTML = smsCats.map(function(c){ return "<option>" + c + "</option>"; }).join("");
+
+function renderSmsTargets(){
+  document.getElementById("smsTargets").innerHTML = tierCfg.map(function(t, i){
+    return '<button class="tg-btn' + (i===0?" on":"") + '" data-ti="' + i + '">'
+      + '<span class="d" style="background:' + t.color + '"></span>' + t.name + '</button>';
+  }).join("");
+  document.querySelectorAll(".tg-btn").forEach(function(btn){
+    btn.addEventListener("click", function(){ btn.classList.toggle("on"); updateSmsPreview(); });
+  });
+}
+
+document.getElementById("smsBody").addEventListener("input", updateSmsPreview);
+
+function updateSmsPreview(){
+  var body = document.getElementById("smsBody").value;
+  var selTiers = Array.from(document.querySelectorAll(".tg-btn.on")).map(function(b){
+    return tierCfg[parseInt(b.dataset.ti)].name;
+  });
+  var targets = members.filter(function(m){ return selTiers.includes(getTier(m.points).name); });
+  document.getElementById("smsCount").textContent = targets.length;
+  var sample = targets[0] || {name:"홍길동", points:120};
+  document.getElementById("smsPreview").textContent = body
+    .replace(/{이름}/g, sample.name)
+    .replace(/{등급}/g, getTier(sample.points).name)
+    .replace(/{포인트}/g, (sample.points||0).toLocaleString());
+}
+
+document.getElementById("smsLunch").addEventListener("click", function(){
+  this.classList.toggle("on");
+});
+document.getElementById("sendSms").addEventListener("click", function(){
+  toast("행사 문자 기능은 Phase 3-B에서 연결됩니다.");
+});
+
+/* ══════════════════════════════════
+   NAV
+══════════════════════════════════ */
+document.querySelectorAll(".nav-item").forEach(function(btn){
+  btn.addEventListener("click", function(){
+    document.querySelectorAll(".nav-item").forEach(function(b){ b.classList.remove("active"); });
+    btn.classList.add("active");
+    var v = btn.dataset.view;
+    document.querySelectorAll(".view").forEach(function(s){ s.classList.remove("active"); });
+    document.getElementById(v).classList.add("active");
+    document.getElementById("pageTitle").textContent = btn.textContent.trim();
+  });
+});
+
+/* ══════════════════════════════════
+   INIT
+══════════════════════════════════ */
+(async function init(){
+  renderSmsTargets();
+  updateSmsPreview();
+  var res = await sb.auth.getSession();
+  if(res.data && res.data.session){
+    showAdmin(res.data.session.user.email);
+    loadData();
+    renderTierCards();
+  } else {
+    showLogin();
+  }
+})();
+
+})();
+</script>
+</body>
+</html>
