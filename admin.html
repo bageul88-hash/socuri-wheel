@@ -280,6 +280,26 @@
   .w-legend{font-size:12px;color:var(--ink-soft);}
   .w-save-row{margin-top:18px;display:flex;align-items:center;gap:14px;}
   #wStatus{font-size:13px;color:var(--ink-soft);}
+  /* ── 공간예약 ── */
+  .bk-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px;}
+  .bk-form{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:20px;}
+  .bk-form h3{margin:0 0 14px;font-size:15px;font-weight:800;}
+  .bk-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .bk-grid.wide{grid-template-columns:1fr;}
+  .bk-field label{display:block;font-size:12px;font-weight:700;color:var(--ink-soft);margin-bottom:4px;}
+  .bk-inp{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:13.5px;font-family:var(--font);background:#fff;}
+  .bk-inp:focus{outline:none;border-color:var(--red);}
+  .bk-actions{display:flex;gap:10px;margin-top:14px;}
+  .status-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11.5px;font-weight:800;}
+  .status-대기{background:#f0f0f0;color:#666;}
+  .status-승인{background:#e6f4e0;color:var(--green);}
+  .status-취소{background:#fde8eb;color:var(--red);}
+  .status-환불{background:#fff3e0;color:var(--amber);}
+  .bk-toggle-btn{background:none;border:none;color:var(--red);font-size:13px;font-weight:700;cursor:pointer;padding:0;font-family:var(--font);text-decoration:underline;}
+  @media(max-width:640px){
+    .bk-stats{grid-template-columns:1fr 1fr;}
+    .bk-grid{grid-template-columns:1fr;}
+  }
 </style>
 </head>
 <body>
@@ -446,10 +466,44 @@
 
     <!-- 공간예약 -->
     <section class="view" id="booking">
-      <div class="card" style="padding:36px;text-align:center;">
-        <h2 class="sec" style="font-size:20px;">📅 공간예약</h2>
-        <p style="color:var(--ink-soft);margin-top:14px;font-size:15px;">공간예약 (준비 중)</p>
+      <!-- 상단 요약 -->
+      <div class="bk-stats">
+        <div class="stat"><div class="stat-num" id="bkTodayCount">-</div><div class="stat-lbl">오늘 예약</div></div>
+        <div class="stat"><div class="stat-num" id="bkTodayRev">-</div><div class="stat-lbl">오늘 예상 매출</div></div>
+        <div class="stat"><div class="stat-num" id="bkSpaceCount">-</div><div class="stat-lbl">등록 공간</div></div>
       </div>
+      <!-- 예약 추가 폼 -->
+      <div class="bk-form" id="bkFormWrap" style="display:none;">
+        <h3>예약 추가</h3>
+        <div class="bk-grid">
+          <div class="bk-field"><label>예약자명</label><input class="bk-inp" id="bkName" placeholder="홍길동"></div>
+          <div class="bk-field"><label>연락처</label><input class="bk-inp" id="bkPhone" placeholder="010-0000-0000" type="tel"></div>
+          <div class="bk-field"><label>공간</label><select class="bk-inp" id="bkSpace"></select></div>
+          <div class="bk-field"><label>날짜</label><input class="bk-inp" id="bkDate" type="date"></div>
+          <div class="bk-field"><label>시작 시간</label><input class="bk-inp" id="bkStart" type="time"></div>
+          <div class="bk-field"><label>종료 시간</label><input class="bk-inp" id="bkEnd" type="time"></div>
+          <div class="bk-field"><label>인원</label><input class="bk-inp" id="bkPeople" type="number" min="1" value="1"></div>
+          <div class="bk-field"><label>메모</label><input class="bk-inp" id="bkMemo" placeholder="(선택)"></div>
+        </div>
+        <div class="bk-actions">
+          <button class="btn red" onclick="addReservation()">저장</button>
+          <button class="btn ghost" onclick="document.getElementById('bkFormWrap').style.display='none'">취소</button>
+        </div>
+      </div>
+      <!-- 툴바 -->
+      <div class="toolbar">
+        <span style="font-weight:800;font-size:15px;">예약 목록</span>
+        <button class="btn red sm" onclick="document.getElementById('bkFormWrap').style.display='block'">+ 예약 추가</button>
+      </div>
+      <!-- PC 표 -->
+      <div class="card" style="padding:0;overflow:hidden;" id="bkTableWrap">
+        <table class="tbl" id="bkTable">
+          <thead><tr><th>예약자</th><th>연락처</th><th>공간</th><th>날짜</th><th>시간</th><th>인원</th><th>상태</th><th>관리</th></tr></thead>
+          <tbody id="bkBody"></tbody>
+        </table>
+      </div>
+      <!-- 모바일 카드 목록 -->
+      <div id="bkCards" style="display:none;"></div>
     </section>
 
   </div><!-- /content -->
@@ -913,6 +967,128 @@ async function saveWheelOpts(){
 /* ══════════════════════════════════
    INIT
 ══════════════════════════════════ */
+  /* == 공간예약 == */
+  var bkSpaces = [];
+  var bkReservations = [];
+
+  async function loadSpaces() {
+    var r = await sb.from("spaces").select("*").eq("active", true).order("name");
+    if (r.data) {
+      bkSpaces = r.data;
+      var sel = document.getElementById("bkSpace");
+      if (sel) {
+        sel.innerHTML = bkSpaces.map(function(s) {
+          var priceStr = s.price_per_hour ? (s.price_per_hour / 10000).toFixed(1) + "만원/h" : "무료";
+          return '<option value="' + s.id + '">' + s.name + ' (' + priceStr + ')</option>';
+        }).join("");
+      }
+      document.getElementById("bkSpaceCount").textContent = bkSpaces.length + "개";
+    }
+  }
+
+  async function loadReservations() {
+    var today = new Date().toISOString().slice(0,10);
+    var r = await sb.from("reservations")
+      .select("*, spaces(name, price_per_hour)")
+      .order("date", {ascending:false})
+      .order("start_time", {ascending:false})
+      .limit(100);
+    if (r.data) {
+      bkReservations = r.data;
+      var todayRows = r.data.filter(function(x){ return x.date === today && x.status !== "취소" && x.status !== "환불"; });
+      document.getElementById("bkTodayCount").textContent = todayRows.length + "건";
+      var todayRev = todayRows.reduce(function(acc, x) {
+        if (!x.spaces || !x.spaces.price_per_hour) return acc;
+        var h = 0;
+        if (x.start_time && x.end_time) {
+          var s = x.start_time.split(":"), e = x.end_time.split(":");
+          h = (parseInt(e[0])*60+parseInt(e[1]) - (parseInt(s[0])*60+parseInt(s[1]))) / 60;
+        }
+        return acc + x.spaces.price_per_hour * h;
+      }, 0);
+      document.getElementById("bkTodayRev").textContent = todayRev >= 10000 ? (todayRev/10000).toFixed(1)+"만원" : todayRev.toLocaleString()+"원";
+      renderReservations();
+    }
+  }
+
+  function renderReservations() {
+    var isMobile = window.innerWidth <= 640;
+    var tbody = document.getElementById("bkBody");
+    var cards = document.getElementById("bkCards");
+    var tableWrap = document.getElementById("bkTableWrap");
+    if (!tbody || !cards) return;
+    if (isMobile) { tableWrap.style.display="none"; cards.style.display=""; }
+    else { tableWrap.style.display=""; cards.style.display="none"; }
+
+    var rows = bkReservations.map(function(x) {
+      var spaceName = x.spaces ? x.spaces.name : "-";
+      var time = (x.start_time||"").slice(0,5) + (x.end_time ? " ~ " + x.end_time.slice(0,5) : "");
+      var status = x.status || "대기";
+      var badge = '<span class="status-badge status-' + status + '">' + status + '</span>';
+      var btns = "";
+      if (status !== "승인") btns += '<button class="btn green sm" onclick="updateReservationStatus(' + x.id + ',\'승인\')">승인</button> ';
+      if (status !== "취소") btns += '<button class="btn sm" style="background:#ccc;color:#333" onclick="updateReservationStatus(' + x.id + ',\'취소\')">취소</button>';
+      return { x:x, spaceName:spaceName, time:time, badge:badge, btns:btns };
+    });
+
+    tbody.innerHTML = rows.map(function(r) {
+      return "<tr><td>" + (r.x.name||"-") + "</td><td>" + (r.x.phone||"-") + "</td><td>" + r.spaceName + "</td><td>" + (r.x.date||"-") + "</td><td>" + r.time + "</td><td>" + (r.x.people||"-") + "명</td><td>" + r.badge + "</td><td class='actions'>" + r.btns + "</td></tr>";
+    }).join("") || "<tr><td colspan='8' style='text-align:center;color:var(--ink-soft);padding:32px'>예약 없음</td></tr>";
+
+    cards.innerHTML = rows.map(function(r) {
+      return '<div class="card" style="margin-bottom:10px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+        '<strong>' + (r.x.name||"-") + '</strong>' + r.badge + '</div>' +
+        '<div style="font-size:13px;color:var(--ink-soft);line-height:1.8">' +
+        '📞 ' + (r.x.phone||"-") + '<br>' +
+        '🏢 ' + r.spaceName + ' | 📅 ' + (r.x.date||"-") + '<br>' +
+        '⏰ ' + r.time + ' | 👥 ' + (r.x.people||"-") + '명' +
+        (r.x.memo ? '<br>💬 ' + r.x.memo : '') +
+        '</div>' +
+        '<div style="margin-top:10px;display:flex;gap:8px">' + r.btns + '</div>' +
+        '</div>';
+    }).join("") || '<div style="text-align:center;color:var(--ink-soft);padding:32px">예약 없음</div>';
+  }
+
+  async function addReservation() {
+    var name  = document.getElementById("bkName").value.trim();
+    var phone = document.getElementById("bkPhone").value.trim();
+    var spaceId = document.getElementById("bkSpace").value;
+    var date  = document.getElementById("bkDate").value;
+    var start = document.getElementById("bkStart").value;
+    var end   = document.getElementById("bkEnd").value;
+    var people = parseInt(document.getElementById("bkPeople").value) || 1;
+    var memo  = document.getElementById("bkMemo").value.trim();
+    if (!name || !spaceId || !date || !start || !end) { alert("필수 항목을 입력하세요."); return; }
+    var r = await sb.from("reservations").insert([{
+      name: name, phone: phone, space_id: spaceId, date: date,
+      start_time: start, end_time: end, people: people, memo: memo, status: "대기"
+    }]);
+    if (r.error) { alert("저장 실패: " + r.error.message); return; }
+    document.getElementById("bkFormWrap").style.display = "none";
+    ["bkName","bkPhone","bkDate","bkStart","bkEnd","bkMemo"].forEach(function(id){ document.getElementById(id).value=""; });
+    document.getElementById("bkPeople").value = "1";
+    loadReservations();
+  }
+
+  async function updateReservationStatus(id, status) {
+    var r = await sb.from("reservations").update({status: status}).eq("id", id);
+    if (r.error) { alert("업데이트 실패: " + r.error.message); return; }
+    loadReservations();
+  }
+
+  async function loadBookingData() {
+    await loadSpaces();
+    await loadReservations();
+    var dateInp = document.getElementById("bkDate");
+    if (dateInp && !dateInp.value) dateInp.value = new Date().toISOString().slice(0,10);
+  }
+
+  window.addEventListener("resize", function() {
+    var bkSection = document.getElementById("booking");
+    if (bkSection && bkSection.classList.contains("active")) renderReservations();
+  });
+
 (async function init(){
   renderSmsTargets();
   updateSmsPreview();
@@ -922,6 +1098,7 @@ async function saveWheelOpts(){
     loadData();
     renderTierCards();
     loadWheelOpts();
+    loadBookingData();
   } else {
     showLogin();
   }
