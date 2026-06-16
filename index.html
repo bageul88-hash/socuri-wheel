@@ -132,7 +132,8 @@
   .card .prize{margin:18px 0 10px;font-size:clamp(32px,4.4vmin,44px);font-weight:800;color:var(--cream);word-break:keep-all;}
   .card .prize.lose{color:#c4b6a0;}
   .card .msg{color:#c4b6a0;font-size:16px;margin:0 0 30px;}
-  .btn-next{width:100%;border:none;border-radius:14px;padding:16px;background:linear-gradient(180deg,#e93b54,var(--red));color:#fff;font-size:18px;font-weight:800;cursor:pointer;font-family:var(--font);box-shadow:0 8px 20px rgba(214,31,58,.3);-webkit-tap-highlight-color:transparent;}
+  #nextBtn{display:none;background:linear-gradient(180deg,#e93b54,var(--red));color:#fff;border:none;border-radius:13px;padding:0 18px;height:7.5vmin;min-height:52px;font-size:clamp(13px,1.6vmin,16px);font-weight:800;cursor:pointer;font-family:var(--font);white-space:nowrap;box-shadow:0 4px 14px rgba(214,31,58,.4);-webkit-tap-highlight-color:transparent;}
+  #nextBtn.show{display:flex;align-items:center;}
   canvas#fx{position:fixed;inset:0;pointer-events:none;z-index:40;}
 
   /* ── 회원번호 입력칸 (좌측 하단) ── */
@@ -233,6 +234,7 @@
   <div class="corner">
     <button class="icon-btn" id="soundBtn" title="효과음">🔊</button>
     <button class="icon-btn" id="gearBtn" title="옵션 설정">⚙</button>
+    <button type="button" id="nextBtn">다음 손님</button>
   </div>
   <div class="wrap">
     <div class="col-wheel">
@@ -271,7 +273,6 @@
     <div class="label">결과</div>
     <div class="prize" id="prizeText">—</div>
     <p class="msg" id="prizeMsg"></p>
-    <button type="button" class="btn-next" id="nextBtn">다음 손님</button>
   </div>
 </div>
 <div id="numpad" class="numpad-overlay">
@@ -337,7 +338,7 @@
   };
   function resetSignup(){
     $("name").value="";$("phone").value="";$("agree").checked=false;fail("");
-    memberNum="";$("memberNum").value="";$("memberMsg").textContent="";$("memberMsg").className="member-msg";
+    memberNum="";$("memberNum").value="";$("memberMsg").textContent="";$("memberMsg").className="member-msg";$("nextBtn").classList.remove("show");
     $("numpadDisplay").textContent="회원번호를 입력하세요";$("numpadDisplay").classList.add("empty");
     $("game").classList.remove("active");$("signup").classList.add("active");
     rotation=-Math.PI/2;
@@ -433,7 +434,7 @@
     var o=options[win],lose=/꽝|다음 기회/.test(o.label),pt=$("prizeText");
     pt.textContent=o.label;pt.classList.toggle("lose",lose);
     $("prizeMsg").textContent=lose?"아쉬워요. 다음 기회에 도전!":"축하합니다! 직원에게 화면을 보여주세요.";
-    $("modal").classList.add("show");
+    $("modal").classList.add("show");$("nextBtn").classList.add("show");
     if(window.sb){ window.sb.from("spins").insert({member_id:savedMemberId,prize:o.label}).then(function(){}).catch(function(){}); }
     if(!lose){fanfare();confetti();}else tick();
   }
@@ -484,9 +485,10 @@
   $("plus").onclick=function(){setCount(options.length+1);};
   $("minus").onclick=function(){setCount(options.length-1);};
   $("resetBtn").onclick=function(){options=DEFAULTS.map(function(o,i){return {label:o.label,weight:o.weight,color:PALETTE[i%8]};});renderOpts();draw();};
+
+  $("soundBtn").onclick=function(){soundOn=!soundOn;var b=$("soundBtn");b.textContent=soundOn?"🔊":"🔇";b.classList.toggle("on",soundOn);};
   $("gearBtn").onclick=function(){$("panel").classList.toggle("open");$("gearBtn").classList.toggle("on");};
   $("closeP").onclick=function(){$("panel").classList.remove("open");$("gearBtn").classList.remove("on");};
-  $("soundBtn").onclick=function(){soundOn=!soundOn;var b=$("soundBtn");b.textContent=soundOn?"🔊":"🔇";b.classList.toggle("on",soundOn);};
   $("nextBtn").addEventListener("click",function(){$("modal").classList.remove("show");resetSignup();});
   window.addEventListener("resize",function(){resize();fxResize();});
   window.addEventListener("orientationchange",function(){setTimeout(function(){resize();fxResize();},250);});
