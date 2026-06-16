@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
@@ -132,6 +132,7 @@
   .card .prize{margin:18px 0 10px;font-size:clamp(32px,4.4vmin,44px);font-weight:800;color:var(--cream);word-break:keep-all;}
   .card .prize.lose{color:#c4b6a0;}
   .card .msg{color:#c4b6a0;font-size:16px;margin:0 0 30px;}
+  .btn-next{width:100%;border:none;border-radius:14px;padding:16px;background:linear-gradient(180deg,#e93b54,var(--red));color:#fff;font-size:18px;font-weight:800;cursor:pointer;font-family:var(--font);box-shadow:0 8px 20px rgba(214,31,58,.3);-webkit-tap-highlight-color:transparent;}
   canvas#fx{position:fixed;inset:0;pointer-events:none;z-index:40;}
 
   /* ── 회원번호 입력칸 (좌측 하단) ── */
@@ -270,6 +271,7 @@
     <div class="label">결과</div>
     <div class="prize" id="prizeText">—</div>
     <p class="msg" id="prizeMsg"></p>
+    <button type="button" class="btn-next" id="nextBtn">다음 손님</button>
   </div>
 </div>
 <div id="numpad" class="numpad-overlay">
@@ -485,7 +487,7 @@
   $("gearBtn").onclick=function(){$("panel").classList.toggle("open");$("gearBtn").classList.toggle("on");};
   $("closeP").onclick=function(){$("panel").classList.remove("open");$("gearBtn").classList.remove("on");};
   $("soundBtn").onclick=function(){soundOn=!soundOn;var b=$("soundBtn");b.textContent=soundOn?"🔊":"🔇";b.classList.toggle("on",soundOn);};
-  $("modal").addEventListener("click",function(){$("modal").classList.remove("show");resetSignup();});
+  $("nextBtn").addEventListener("click",function(){$("modal").classList.remove("show");resetSignup();});
   window.addEventListener("resize",function(){resize();fxResize();});
   window.addEventListener("orientationchange",function(){setTimeout(function(){resize();fxResize();},250);});
   renderOpts();
