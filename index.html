@@ -101,30 +101,6 @@
     background:rgba(39,32,25,.85);color:var(--cream);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:clamp(20px,2.6vmin,26px);margin-left:11px;}
   .icon-btn.on{color:var(--brass);}
 
-  .panel{position:fixed;top:0;right:0;height:100vh;width:min(460px,86vw);z-index:20;
-    background:#211a13;border-left:1px solid rgba(205,162,76,.25);box-shadow:-16px 0 40px rgba(0,0,0,.5);
-    transform:translateX(100%);transition:transform .28s ease;overflow-y:auto;-webkit-overflow-scrolling:touch;}
-  .panel.open{transform:translateX(0);}
-  .panel-inner{padding:24px 22px 34px;}
-  .panel .phead{display:flex;justify-content:space-between;align-items:center;}
-  .panel h3{margin:0 0 4px;font-size:18px;color:var(--cream);}
-  .panel .hint{margin:0 0 16px;font-size:13px;color:#c4b6a0;line-height:1.55;}
-  .panel .closeP{background:none;border:none;color:#c4b6a0;font-size:26px;cursor:pointer;}
-  .count-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid rgba(205,162,76,.22);margin-bottom:14px;}
-  .count-row span{font-size:15px;font-weight:600;color:var(--cream);}
-  .stepper button{width:40px;height:40px;border-radius:11px;border:1px solid rgba(205,162,76,.22);background:var(--espresso-2);color:var(--cream);font-size:20px;cursor:pointer;font-weight:700;margin:0 7px;}
-  .stepper button:disabled{opacity:.35;}
-  .stepper b{font-size:17px;color:var(--cream);}
-  .opt{display:flex;align-items:center;margin-bottom:11px;}
-  .dot{width:15px;height:15px;border-radius:4px;margin-right:9px;flex:0 0 auto;}
-  .opt input[type=text]{flex:1;min-width:0;background:var(--espresso);border:1px solid rgba(205,162,76,.22);color:var(--cream);border-radius:11px;padding:12px;font-size:15px;}
-  .wbox{display:flex;align-items:center;margin-left:9px;}
-  .wbox button{width:34px;height:34px;border-radius:9px;border:1px solid rgba(205,162,76,.22);background:var(--espresso-2);color:var(--cream);font-size:17px;cursor:pointer;font-weight:700;}
-  .wbox b{min-width:22px;text-align:center;font-size:14px;color:var(--cream);margin:0 3px;}
-  .pct{min-width:48px;text-align:right;font-size:13px;color:var(--brass);margin-left:9px;}
-  .panel-foot{display:flex;justify-content:space-between;align-items:center;margin-top:16px;}
-  .reset{background:none;border:none;color:#c4b6a0;text-decoration:underline;cursor:pointer;font-size:14px;}
-  .legend{font-size:12px;color:#c4b6a0;}
 
   .modal{position:fixed;inset:0;z-index:30;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(8,5,2,.62);}
   .modal.show{display:flex;}
@@ -234,7 +210,6 @@
 <section id="game" class="screen">
   <div class="corner">
     <button class="icon-btn" id="soundBtn" title="효과음">🔊</button>
-    <button class="icon-btn" id="gearBtn" title="옵션 설정">⚙</button>
   </div>
   <div class="wrap">
     <div class="col-wheel">
@@ -254,18 +229,6 @@
       <button class="spin-cta" id="spinBtn">돌리기</button>
     </div>
   </div>
-
-  <aside class="panel" id="panel">
-    <div class="panel-inner">
-      <div class="phead"><h3>옵션 설정 (관리자)</h3><button class="closeP" id="closeP">×</button></div>
-      <p class="hint">상품 이름과 <b>당첨 가중치</b>를 정하세요. 가중치가 높을수록 자주 나옵니다. ※ 새로고침하면 코드 기본값으로 돌아갑니다.</p>
-      <div class="count-row"><span>옵션 개수</span>
-        <div class="stepper"><button id="minus">−</button><b id="countLabel">6</b><button id="plus">+</button></div>
-      </div>
-      <div id="optList"></div>
-      <div class="panel-foot"><button class="reset" id="resetBtn">기본값으로 초기화</button><span class="legend" id="sumLabel"></span></div>
-    </div>
-  </aside>
 </section>
 
 <div class="modal" id="modal">
@@ -352,6 +315,17 @@
     {label:"꽝! 다음 기회에",weight:4},{label:"사이즈 업",weight:3},
     {label:"디저트 1개",weight:1},{label:"포인트 2배",weight:2}];
   var options=DEFAULTS.map(function(o,i){return {label:o.label,weight:o.weight,color:PALETTE[i%8]};});
+  /* ── Supabase 원반 설정 로드 ── */
+  (async function loadWheelFromSupabase(){
+    if(!window.sb)return;
+    try{
+      var r=await window.sb.from("settings").select("value").eq("key","wheel").single();
+      if(r.data&&r.data.value&&Array.isArray(r.data.value)&&r.data.value.length>=2){
+        options=r.data.value.map(function(o,i){return{label:o.label,weight:+(o.weight)||1,color:PALETTE[i%8]};});
+        draw();
+      }
+    }catch(e){}
+  })();
   var rotation=-Math.PI/2,spinning=false,soundOn=true,lastTickIdx=-1;
   var TAU=Math.PI*2,POINTER=-Math.PI/2;
 
@@ -456,44 +430,14 @@
       if(alive)raf=requestAnimationFrame(loop);else fxx.clearRect(0,0,fx.width,fx.height);})();
   }
 
-  var optList=$("optList");
-  function renderOpts(){
-    $("countLabel").textContent=options.length;
-    $("minus").disabled=options.length<=2;$("plus").disabled=options.length>=8;
-    var sum=0,i;for(i=0;i<options.length;i++)sum+=Math.max(0,options[i].weight);sum=sum||1;
-    $("sumLabel").textContent="합계 가중치 "+sum;
-    optList.innerHTML="";
-    options.forEach(function(o,i){
-      var row=document.createElement("div");row.className="opt";
-      var pct=Math.round(Math.max(0,o.weight)/sum*100);
-      row.innerHTML='<span class="dot" style="background:'+o.color+'"></span>'+
-        '<input type="text" value="'+o.label.replace(/"/g,"&quot;")+'" data-i="'+i+'" maxlength="14">'+
-        '<div class="wbox"><button data-dec="'+i+'">−</button><b>'+o.weight+'</b><button data-inc="'+i+'">+</button></div>'+
-        '<span class="pct">'+pct+'%</span>';
-      optList.appendChild(row);
-    });
-    var t=optList.querySelectorAll('input[type=text]');for(i=0;i<t.length;i++)t[i].oninput=function(e){options[+e.target.dataset.i].label=e.target.value;draw();};
-    var inc=optList.querySelectorAll('[data-inc]');for(i=0;i<inc.length;i++)inc[i].onclick=function(){var k=+this.dataset.inc;options[k].weight=Math.min(20,options[k].weight+1);renderOpts();};
-    var dec=optList.querySelectorAll('[data-dec]');for(i=0;i<dec.length;i++)dec[i].onclick=function(){var k=+this.dataset.dec;options[k].weight=Math.max(0,options[k].weight-1);renderOpts();};
-  }
-  function setCount(n){n=Math.max(2,Math.min(8,n));
-    while(options.length<n)options.push({label:"옵션 "+(options.length+1),weight:1,color:PALETTE[options.length%8]});
-    while(options.length>n)options.pop();
-    options.forEach(function(o,i){o.color=PALETTE[i%8];});renderOpts();draw();}
 
   function setDisabled(d){$("spinBtn").disabled=d;$("hub").disabled=d;}
   $("spinBtn").onclick=spin;$("hub").onclick=spin;
-  $("plus").onclick=function(){setCount(options.length+1);};
-  $("minus").onclick=function(){setCount(options.length-1);};
-  $("resetBtn").onclick=function(){options=DEFAULTS.map(function(o,i){return {label:o.label,weight:o.weight,color:PALETTE[i%8]};});renderOpts();draw();};
 
   $("soundBtn").onclick=function(){soundOn=!soundOn;var b=$("soundBtn");b.textContent=soundOn?"🔊":"🔇";b.classList.toggle("on",soundOn);};
-  $("gearBtn").onclick=function(){$("panel").classList.toggle("open");$("gearBtn").classList.toggle("on");};
-  $("closeP").onclick=function(){$("panel").classList.remove("open");$("gearBtn").classList.remove("on");};
   var _nb=$("nextBtn");if(_nb)_nb.addEventListener("click",function(){$("modal").classList.remove("show");resetSignup();});
   window.addEventListener("resize",function(){resize();fxResize();});
   window.addEventListener("orientationchange",function(){setTimeout(function(){resize();fxResize();},250);});
-  renderOpts();
 
   /* ── 회원번호 키패드 + 재방문 체크인 ── */
   var MAX_NUM_LEN=4;
