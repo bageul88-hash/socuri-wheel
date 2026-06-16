@@ -6,6 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="SOCURI 이벤트">
+<link rel="icon" href="data:,">
 <title>SOCURI Coffee · 멤버십 이벤트 (iPad)</title>
 <style>
   :root{
@@ -296,6 +297,7 @@
   </div>
 </div>
 <canvas id="fx"></canvas>
+<button type="button" id="nextBtn">다음 손님</button>
 
 <script>
 (function(){
@@ -488,7 +490,7 @@
   $("soundBtn").onclick=function(){soundOn=!soundOn;var b=$("soundBtn");b.textContent=soundOn?"🔊":"🔇";b.classList.toggle("on",soundOn);};
   $("gearBtn").onclick=function(){$("panel").classList.toggle("open");$("gearBtn").classList.toggle("on");};
   $("closeP").onclick=function(){$("panel").classList.remove("open");$("gearBtn").classList.remove("on");};
-  $("nextBtn").addEventListener("click",function(){$("modal").classList.remove("show");resetSignup();});
+  var _nb=$("nextBtn");if(_nb)_nb.addEventListener("click",function(){$("modal").classList.remove("show");resetSignup();});
   window.addEventListener("resize",function(){resize();fxResize();});
   window.addEventListener("orientationchange",function(){setTimeout(function(){resize();fxResize();},250);});
   renderOpts();
@@ -529,10 +531,12 @@
     requestAnimationFrame(function(){resize();fxResize();});
   }
   var mnEl=$("memberNum");
-  mnEl.addEventListener("mouseenter",showNumpad);
-  mnEl.addEventListener("click",function(e){e.preventDefault();showNumpad();});
-  mnEl.addEventListener("touchstart",function(e){e.preventDefault();showNumpad();},{passive:false});
-  mnEl.addEventListener("focus",function(){this.blur();showNumpad();});
+  if(mnEl){
+    mnEl.addEventListener("mouseenter",showNumpad);
+    mnEl.addEventListener("click",function(e){e.preventDefault();showNumpad();});
+    mnEl.addEventListener("touchstart",function(e){e.preventDefault();showNumpad();},{passive:false});
+    mnEl.addEventListener("focus",function(){this.blur();showNumpad();});
+  }
   document.querySelectorAll(".npk").forEach(function(btn){
     btn.addEventListener("click",function(){
       var k=btn.dataset.k;
@@ -543,10 +547,9 @@
       if(memberNum.length===MAX_NUM_LEN)checkInMember();
     });
   });
-  $("numpadDone").addEventListener("click",checkInMember);
-  $("numpad").addEventListener("click",function(e){if(e.target===this)hideNumpad();});
+  var _nd=$("numpadDone");if(_nd)_nd.addEventListener("click",checkInMember);
+  var _np=$("numpad");if(_np)_np.addEventListener("click",function(e){if(e.target===this)hideNumpad();});
 })();
 </script>
-<button type="button" id="nextBtn">다음 손님</button>
 </body>
 </html>
