@@ -412,7 +412,7 @@
     pt.textContent=o.label;pt.classList.toggle("lose",lose);
     $("prizeMsg").textContent=lose?"아쉬워요. 다음 기회에 도전!":"축하합니다! 직원에게 화면을 보여주세요.";
     $("modal").classList.add("show");$("nextBtn").classList.add("show");
-    if(window.sb){ window.sb.from("spins").insert({member_id:savedMemberId,prize:o.label}).then(function(r){if(r&&r.error)console.error("spins:",r.error.message);}).catch(function(e){console.error("spins:",e);}); }
+    if(window.sb){ window.sb.rpc("kiosk_spin",{p_member_id:savedMemberId,p_prize:o.label}).then(function(r){if(r&&r.error)console.error("spin save error",r.error);}).catch(function(e){console.error("spin save error",e);}); }
     if(!lose){fanfare();confetti();}else tick();
   }
 
