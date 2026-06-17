@@ -876,8 +876,11 @@ document.querySelectorAll(".mob-nav-item").forEach(function(btn){
   });
 });
 
-var bookingBtn = document.getElementById("bookingBtn");
-if(bookingBtn) bookingBtn.addEventListener("click", function(){ switchView("booking", "공간예약"); });
+// 공간예약 버튼은 스크립트보다 아래(#bottomBar)에 있어, 위임 방식으로 연결
+document.addEventListener("click", function(e){
+  var b = e.target.closest ? e.target.closest("#bookingBtn") : null;
+  if(b){ switchView("booking", "공간예약"); loadBookingData(); }
+});
 
 var mobLogoutEl = document.getElementById("mobLogoutBtn");
 if(mobLogoutEl) mobLogoutEl.addEventListener("click", async function(){
@@ -1076,6 +1079,10 @@ async function saveWheelOpts(){
     if (r.error) { alert("업데이트 실패: " + r.error.message); return; }
     loadReservations();
   }
+
+  // 인라인 onclick(저장·승인·취소)에서 호출할 수 있도록 전역 노출
+  window.addReservation = addReservation;
+  window.updateReservationStatus = updateReservationStatus;
 
   async function loadBookingData() {
     await loadSpaces();
