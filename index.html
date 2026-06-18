@@ -106,7 +106,7 @@
   .modal.show{display:flex;}
   .card{width:min(460px,90vw);text-align:center;border-radius:28px;padding:46px 34px 36px;background:linear-gradient(180deg,#2c2319,#1c1611);border:1px solid rgba(205,162,76,.22);box-shadow:var(--shadow);}
   .card .label{font-size:15px;letter-spacing:.2em;color:var(--brass);font-weight:700;text-transform:uppercase;}
-  .card .prize{margin:18px 0 10px;font-size:clamp(32px,4.4vmin,44px);font-weight:800;color:var(--cream);word-break:keep-all;}
+  .card .prize{margin:18px 0 10px;font-size:clamp(64px,8.8vmin,88px);font-weight:900;color:#FFC400;text-shadow:0 2px 14px rgba(255,196,0,.45);line-height:1.1;word-break:keep-all;}
   .card .prize.lose{color:#c4b6a0;}
   .card .msg{color:#c4b6a0;font-size:16px;margin:0 0 30px;}
   #nextBtn{display:none;position:fixed;top:calc(2.4vmin + env(safe-area-inset-top));right:calc(2.6vmin + env(safe-area-inset-right));z-index:60;background:linear-gradient(180deg,#e93b54,var(--red));color:#fff;border:none;border-radius:28px;padding:clamp(20px,3.5vmin,44px) clamp(36px,6vmin,104px);font-size:clamp(36px,6vmin,72px);font-weight:800;cursor:pointer;font-family:var(--font);white-space:nowrap;box-shadow:0 16px 48px rgba(214,31,58,.5);-webkit-tap-highlight-color:transparent;line-height:1;}
@@ -295,7 +295,7 @@
     fail("처리 중...");
     var reg=await window.sb.rpc("kiosk_register",{p_name:name,p_phone:pd});
     if(reg.error){return fail("등록 오류: "+reg.error.message);}
-    savedMemberId=reg.data;
+    savedMemberId=(reg.data&&reg.data.member_id)||reg.data; if(reg.data&&reg.data.spun_today){return fail("오늘은 이미 참여하셨어요 🙂 내일 다시 도전해 주세요!");}
 
     $("who").textContent=name+"님, 행운을 빌어요!";
     $("signup").classList.remove("active");
@@ -377,7 +377,7 @@
   var actx=null;
   function tick(){if(!soundOn)return;try{actx=actx||new(window.AudioContext||window.webkitAudioContext)();
     var o=actx.createOscillator(),g=actx.createGain();o.type="square";o.frequency.value=880;
-    g.gain.setValueAtTime(.06,actx.currentTime);g.gain.exponentialRampToValueAtTime(.0001,actx.currentTime+.05);
+    g.gain.setValueAtTime(.12,actx.currentTime);g.gain.exponentialRampToValueAtTime(.0001,actx.currentTime+.06);
     o.connect(g).connect(actx.destination);o.start();o.stop(actx.currentTime+.05);}catch(e){}}
   function fanfare(){if(!soundOn)return;try{actx=actx||new(window.AudioContext||window.webkitAudioContext)();
     [523,659,784,1047].forEach(function(f,i){var o=actx.createOscillator(),g=actx.createGain();o.type="triangle";o.frequency.value=f;
@@ -392,19 +392,30 @@
     if(spinning)return; if(actx&&actx.state==="suspended")actx.resume();
     spinning=true;setDisabled(true);
     var n=options.length,seg=TAU/n,win=weightedPick();
-    var target=POINTER-(win*seg+seg/2);target+=(Math.random()-.5)*seg*.7;
     var reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    var spins=reduce?2:6;
-    var delta=((target-rotation)%TAU+TAU)%TAU;
-    var final=rotation+spins*TAU+delta,start=rotation,dur=reduce?900:4200,t0=performance.now();
+    /* 당첨 칸 가장자리 근처에 아슬아슬하게 멈추도록 */
+    var edgeDir=Math.random()<.5?1:-1;
+    var off=seg*(0.30+Math.random()*0.13);
+    var targetAngle=POINTER-(win*seg+seg/2)+edgeDir*off;
+    var spins=reduce?2:7;
+    var delta=((targetAngle-rotation)%TAU+TAU)%TAU;
+    var finalRot=rotation+spins*TAU+delta,start=rotation;
+    /* 2단계: (1) 빠른 감속  (2) 마지막 슬로우 크립 */
+    var creep=reduce?0:seg*0.55;
+    var mid=finalRot-creep;
+    var dur1=reduce?800:4200, dur2=reduce?0:1600, t0=performance.now();
     lastTickIdx=idxUnderPointer();
     (function frame(now){
-      var p=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-p,3);
-      rotation=start+(final-start)*e;
+      var el=now-t0,done=false;
+      if(el<=dur1){
+        var p=el/dur1; rotation=start+(mid-start)*(1-Math.pow(1-p,3));
+      }else if(dur2>0 && el<=dur1+dur2){
+        var p2=(el-dur1)/dur2; rotation=mid+(finalRot-mid)*(1-Math.pow(1-p2,2.4));
+      }else{ rotation=finalRot; done=true; }
       var cur=idxUnderPointer();if(cur!==lastTickIdx){lastTickIdx=cur;tick();}
       draw();
-      if(p<1)requestAnimationFrame(frame);
-      else{rotation=((final%TAU)+TAU)%TAU;spinning=false;setDisabled(false);finish(win);}
+      if(!done)requestAnimationFrame(frame);
+      else{rotation=((finalRot%TAU)+TAU)%TAU;spinning=false;setDisabled(false);finish(win);}
     })(t0);
   }
   function finish(win){
@@ -469,7 +480,7 @@
       return;
     }
     var m=res.data[0];
-    savedMemberId=m.id;
+    savedMemberId=m.id; if(window.sb){var chk=await window.sb.rpc("kiosk_check_today",{p_member_id:m.id}); if(chk&&chk.data===true){setMemberMsg("오늘은 이미 참여하셨어요 🙂 내일 다시 도전해 주세요!",true);return;}}
     $("who").textContent=m.name+"님, 행운을 빌어요!";
     setMemberMsg("");
     $("signup").classList.remove("active");
