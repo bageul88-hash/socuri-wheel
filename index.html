@@ -377,11 +377,11 @@
   var actx=null;
   function tick(){if(!soundOn)return;try{actx=actx||new(window.AudioContext||window.webkitAudioContext)();
     var o=actx.createOscillator(),g=actx.createGain();o.type="square";o.frequency.value=880;
-    g.gain.setValueAtTime(.12,actx.currentTime);g.gain.exponentialRampToValueAtTime(.0001,actx.currentTime+.06);
+    g.gain.setValueAtTime(.36,actx.currentTime);g.gain.exponentialRampToValueAtTime(.0001,actx.currentTime+.06);
     o.connect(g).connect(actx.destination);o.start();o.stop(actx.currentTime+.05);}catch(e){}}
   function fanfare(){if(!soundOn)return;try{actx=actx||new(window.AudioContext||window.webkitAudioContext)();
     [523,659,784,1047].forEach(function(f,i){var o=actx.createOscillator(),g=actx.createGain();o.type="triangle";o.frequency.value=f;
-    var t=actx.currentTime+i*.11;g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.18,t+.02);
+    var t=actx.currentTime+i*.11;g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.54,t+.02);
     g.gain.exponentialRampToValueAtTime(.0001,t+.35);o.connect(g).connect(actx.destination);o.start(t);o.stop(t+.36);});}catch(e){}}
 
   function weightedPick(){var sum=0,i;for(i=0;i<options.length;i++)sum+=Math.max(0,options[i].weight);sum=sum||1;
