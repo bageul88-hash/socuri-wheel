@@ -328,7 +328,7 @@
       }
     }catch(e){}
   })();
-  var rotation=-Math.PI/2,spinning=false,soundOn=true,lastTickIdx=-1;
+  var rotation=-Math.PI/2,spinning=false,soundOn=true;
   var TAU=Math.PI*2,POINTER=-Math.PI/2;
 
   var cv=$("wheel"),ctx=cv.getContext("2d");
@@ -374,22 +374,112 @@
     ctx.restore();
   }
 
-  var actx=null;
-  function tick(){if(!soundOn)return;try{actx=actx||new(window.AudioContext||window.webkitAudioContext)();
-    var o=actx.createOscillator(),g=actx.createGain();o.type="square";o.frequency.value=880;
-    g.gain.setValueAtTime(1.08,actx.currentTime);g.gain.exponentialRampToValueAtTime(.0001,actx.currentTime+.06);
-    o.connect(g).connect(actx.destination);o.start();o.stop(actx.currentTime+.05);}catch(e){}}
-  function fanfare(){if(!soundOn)return;try{actx=actx||new(window.AudioContext||window.webkitAudioContext)();
-    [523,659,784,1047].forEach(function(f,i){var o=actx.createOscillator(),g=actx.createGain();o.type="triangle";o.frequency.value=f;
-    var t=actx.currentTime+i*.11;g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(1.62,t+.02);
-    g.gain.exponentialRampToValueAtTime(.0001,t+.35);o.connect(g).connect(actx.destination);o.start(t);o.stop(t+.36);});}catch(e){}}
+  /* ── 오디오 엔진 ──
+     모든 소리는 master(3배) → 리미터 → 출력 순으로 흐른다.
+     gain 을 그냥 1.0 이상으로 올리면 증폭이 아니라 클리핑이라 소리만 깨진다.
+     리미터가 피크를 눌러주므로 3배를 걸어도 찌그러지지 않고 체감 음량만 오른다. */
+  var actx=null,master=null,noiseBuf=null;
+  function audio(){
+    if(!actx){
+      actx=new(window.AudioContext||window.webkitAudioContext)();
+      var lim=actx.createDynamicsCompressor();
+      lim.threshold.value=-10;lim.knee.value=6;lim.ratio.value=12;
+      lim.attack.value=.002;lim.release.value=.12;
+      master=actx.createGain();master.gain.value=3;
+      master.connect(lim).connect(actx.destination);
+    }
+    return actx;
+  }
+  /* 핀이 긁히는 소리의 재료. 버퍼는 한 번만 만들어 재사용한다. */
+  function noise(){
+    if(!noiseBuf){
+      var n=Math.floor(actx.sampleRate*.2);
+      noiseBuf=actx.createBuffer(1,n,actx.sampleRate);
+      var d=noiseBuf.getChannelData(0);
+      for(var i=0;i<n;i++)d[i]=Math.random()*2-1;
+    }
+    var s=actx.createBufferSource();s.buffer=noiseBuf;s.loop=true;
+    s.playbackRate.value=.8+Math.random()*.4;
+    return s;
+  }
+  /* 핀이 칸을 넘는 "딱". v(0~1)=회전 속도 → 빠를수록 크고 밝게. */
+  function tick(v){
+    if(!soundOn)return;
+    try{
+      audio();
+      var t=actx.currentTime;
+      if(typeof v!=="number")v=.5;
+      var amp=.28+.45*v;
+      var det=1+(Math.random()*.24-.12); /* 매번 미세하게 달라야 기계음으로 안 들린다 */
+
+      var s=noise(),bp=actx.createBiquadFilter(),ng=actx.createGain();
+      bp.type="bandpass";bp.frequency.value=(1900+1400*v)*det;bp.Q.value=7;
+      ng.gain.setValueAtTime(amp,t);
+      ng.gain.exponentialRampToValueAtTime(.0001,t+.022);
+      s.connect(bp).connect(ng).connect(master);
+      s.start(t);s.stop(t+.025);
+
+      var o=actx.createOscillator(),og=actx.createGain();
+      o.type="triangle";
+      o.frequency.setValueAtTime(420*det,t);
+      o.frequency.exponentialRampToValueAtTime(190*det,t+.03);
+      og.gain.setValueAtTime(amp*.5,t);
+      og.gain.exponentialRampToValueAtTime(.0001,t+.035);
+      o.connect(og).connect(master);
+      o.start(t);o.stop(t+.04);
+    }catch(e){}
+  }
+  /* 원반이 완전히 멈추며 걸리는 "딱". 틱보다 낮고 길게 남는다. */
+  function clunk(){
+    if(!soundOn)return;
+    try{
+      audio();
+      var t=actx.currentTime;
+      var s=noise(),bp=actx.createBiquadFilter(),ng=actx.createGain();
+      bp.type="bandpass";bp.frequency.value=1200;bp.Q.value=4;
+      ng.gain.setValueAtTime(.85,t);
+      ng.gain.exponentialRampToValueAtTime(.0001,t+.05);
+      s.connect(bp).connect(ng).connect(master);
+      s.start(t);s.stop(t+.06);
+
+      [150,225].forEach(function(f,i){
+        var o=actx.createOscillator(),g=actx.createGain();
+        o.type="triangle";
+        o.frequency.setValueAtTime(f*1.6,t);
+        o.frequency.exponentialRampToValueAtTime(f,t+.06);
+        g.gain.setValueAtTime(.0001,t);
+        g.gain.linearRampToValueAtTime(.7-i*.28,t+.006);
+        g.gain.exponentialRampToValueAtTime(.0001,t+.34);
+        o.connect(g).connect(master);
+        o.start(t);o.stop(t+.35);
+      });
+    }catch(e){}
+  }
+  function fanfare(){
+    if(!soundOn)return;
+    try{
+      audio();
+      var base=actx.currentTime+.12; /* 정지음이 먼저 들리도록 살짝 뒤에서 시작 */
+      [523,659,784,1047].forEach(function(f,i){
+        var o=actx.createOscillator(),g=actx.createGain();
+        o.type="triangle";o.frequency.value=f;
+        var t=base+i*.11;
+        g.gain.setValueAtTime(.0001,t);
+        g.gain.linearRampToValueAtTime(.62,t+.02);
+        g.gain.exponentialRampToValueAtTime(.0001,t+.35);
+        o.connect(g).connect(master);
+        o.start(t);o.stop(t+.36);
+      });
+    }catch(e){}
+  }
 
   function weightedPick(){var sum=0,i;for(i=0;i<options.length;i++)sum+=Math.max(0,options[i].weight);sum=sum||1;
     var r=Math.random()*sum;for(i=0;i<options.length;i++){r-=Math.max(0,options[i].weight);if(r<=0)return i;}return options.length-1;}
-  function idxUnderPointer(){var n=options.length,seg=TAU/n;var a=(POINTER-rotation)%TAU;if(a<0)a+=TAU;return Math.floor(a/seg)%n;}
 
   function spin(){
-    if(spinning)return; if(actx&&actx.state==="suspended")actx.resume();
+    if(spinning)return;
+    /* 첫 스핀은 사용자 클릭 안에서 일어나므로 여기서 오디오를 깨운다 */
+    audio(); if(actx.state==="suspended")actx.resume();
     spinning=true;setDisabled(true);
     var n=options.length,seg=TAU/n,win=weightedPick();
     var reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -404,7 +494,10 @@
     var creep=reduce?0:seg*0.55;
     var mid=finalRot-creep;
     var dur1=reduce?800:4200, dur2=reduce?0:1600, t0=performance.now();
-    lastTickIdx=idxUnderPointer();
+    /* 칸 경계가 아니라 촘촘한 가상 핀을 넘을 때마다 틱.
+       실제 회전각으로 구동되므로 빠를 땐 촘촘하고 감속하면 저절로 벌어진다. */
+    var pinSeg=TAU/(n*4), lastPin=Math.floor(rotation/pinSeg);
+    var prevRot=rotation, prevNow=t0, lastTickAt=0;
     (function frame(now){
       var el=now-t0,done=false;
       if(el<=dur1){
@@ -412,10 +505,21 @@
       }else if(dur2>0 && el<=dur1+dur2){
         var p2=(el-dur1)/dur2; rotation=mid+(finalRot-mid)*(1-Math.pow(1-p2,2.4));
       }else{ rotation=finalRot; done=true; }
-      var cur=idxUnderPointer();if(cur!==lastTickIdx){lastTickIdx=cur;tick();}
+      var pin=Math.floor(rotation/pinSeg);
+      if(pin!==lastPin){
+        /* 최고 속도에선 한 프레임에 핀 여러 개를 넘는다.
+           최소 간격을 두지 않으면 틱이 뭉쳐 버즈가 되고 노드도 폭증한다. */
+        if(now-lastTickAt>=16){
+          var dt=now-prevNow;
+          var spd=dt>0?Math.abs(rotation-prevRot)/dt:0; /* rad/ms */
+          lastTickAt=now; tick(Math.min(1,spd/.03));
+        }
+        lastPin=pin;
+      }
+      prevRot=rotation; prevNow=now;
       draw();
       if(!done)requestAnimationFrame(frame);
-      else{rotation=((finalRot%TAU)+TAU)%TAU;spinning=false;setDisabled(false);finish(win);}
+      else{rotation=((finalRot%TAU)+TAU)%TAU;spinning=false;setDisabled(false);clunk();finish(win);}
     })(t0);
   }
   function finish(win){
@@ -424,7 +528,7 @@
     $("prizeMsg").textContent=lose?"아쉬워요. 다음 기회에 도전!":"축하합니다! 직원에게 화면을 보여주세요.";
     $("modal").classList.add("show");$("nextBtn").classList.add("show");
     if(window.sb){ window.sb.rpc("kiosk_spin",{p_member_id:savedMemberId,p_prize:o.label}).then(function(r){if(r&&r.error)console.error("spin save error",r.error);}).catch(function(e){console.error("spin save error",e);}); }
-    if(!lose){fanfare();confetti();}else tick();
+    if(!lose){fanfare();confetti();} /* 꽝일 땐 직전 clunk() 정지음으로 끝낸다 */
   }
 
   var fx=$("fx"),fxx=fx.getContext("2d"),raf=null,parts=[];
