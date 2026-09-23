@@ -72,7 +72,8 @@ insert into public.settings (key, value) values
      {"label":"디저트 1개","weight":1},
      {"label":"포인트 2배","weight":2}
    ]'::jsonb),
-  -- 오늘의 게임: "roulette"(원반) | "yut"(윷 던지기). admin.html 오늘의 게임 탭에서 변경.
+  -- 오늘의 게임: "roulette"(원반) | "yut"(윷 던지기) | "both"(손님이 키오스크에서 직접 선택).
+  -- admin.html 오늘의 게임 탭에서 변경.
   ('active_game', '"roulette"'::jsonb),
   -- 윷 던지기 결과별 경품/가중치. 도·개·걸·윷·모 순서 고정 5개.
   -- 기본 가중치 25/38/25/6/6 은 윷가락 4개의 실제 확률(4·6·4·1·1 / 16)과 일치.

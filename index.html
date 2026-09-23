@@ -124,6 +124,26 @@
     background:rgba(39,32,25,.85);color:var(--cream);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:clamp(20px,2.6vmin,26px);margin-left:11px;}
   .icon-btn.on{color:var(--brass);}
 
+  /* ── 게임 선택 카드 (active_game="both" 일 때만) ──
+     admin.html 오늘의 게임 탭의 .g-card 디자인을 키오스크 크기로 옮겨온 것.
+     어두운 무대 위에 얹히므로 미선택 카드는 다크 배경 + 흐린 테두리로 둔다. */
+  #gameTabs{position:absolute;top:calc(2.4vmin + env(safe-area-inset-top));
+    left:50%;transform:translateX(-50%);z-index:8;display:none;gap:2vmin;
+    transition:opacity .2s;}
+  #gameTabs.show{display:flex;}
+  #gameTabs.lock{opacity:.4;pointer-events:none;}
+  .game-btn{width:clamp(150px,18vmin,220px);border:2px solid rgba(205,162,76,.32);
+    background:rgba(28,22,17,.78);border-radius:14px;padding:1.6vmin 1vmin;
+    cursor:pointer;text-align:center;font-family:var(--font);
+    -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+    -webkit-tap-highlight-color:transparent;
+    transition:border-color .15s,background .15s,box-shadow .15s;}
+  .game-btn .ic{display:block;font-size:clamp(36px,6vmin,64px);line-height:1;}
+  .game-btn b{display:block;margin-top:.9vmin;font-size:clamp(15px,2vmin,20px);
+    font-weight:800;color:#e9ddca;}
+  .game-btn.on{border-color:var(--red);background:#fff6f3;box-shadow:0 6px 20px rgba(214,31,58,.3);}
+  .game-btn.on b{color:var(--red);}
+
 
   .modal{position:fixed;inset:0;z-index:30;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(8,5,2,.62);}
   .modal.show{display:flex;}
@@ -171,6 +191,11 @@
   .npk-done:active{transform:translateY(1px);}
 
   @media (orientation:portrait){
+    /* 세로에서도 가로 배치 유지 — 폭만 줄인다 */
+    #gameTabs{gap:1.4vmin;}
+    .game-btn{width:clamp(112px,30vw,168px);padding:1.2vmin .8vmin;}
+    /* 카드가 원반 위를 덮지 않도록 무대를 아래로 민다 */
+    #gameTabs.show ~ .wrap{padding-top:calc(20vmin + env(safe-area-inset-top));}
     .wrap{flex-direction:column;height:auto;min-height:100vh;justify-content:center;}
     html,body{overflow:auto;}
     .col-logo,.col-form,.col-wheel,.col-side{height:auto;}
@@ -233,6 +258,10 @@
 <section id="game" class="screen">
   <div class="corner">
     <button class="icon-btn" id="soundBtn" title="효과음">🔊</button>
+  </div>
+  <div id="gameTabs">
+    <button class="game-btn" data-game="roulette"><span class="ic">🎡</span><b>원반 돌리기</b></button>
+    <button class="game-btn" data-game="yut"><span class="ic">🎲</span><b>윷 던지기</b></button>
   </div>
   <div class="wrap">
     <div class="col-wheel">
@@ -338,6 +367,9 @@
     clearSpinTimers();phase="idle";setPhaseUI();
     rotation=-Math.PI/2;
     $("yutName").classList.remove("show");restSticks();drawYut();
+    /* 다음 손님: 카드 재활성 + both 모드면 기본 선택(원반)으로 되돌린다 */
+    if(gameMode==="both")activeGame="roulette";
+    lockTabs(false);applyGame();
   }
 
   /* ---------- wheel ---------- */
@@ -355,7 +387,9 @@
   /* 도·개·걸·윷·모 각각에 해당하는 "평평한 면"의 개수 */
   var YUT_FLATS=[1,2,3,4,0];
   var yutOpts=YUT_DEFAULTS.map(function(o){return{name:o.name,label:o.label,weight:o.weight};});
-  var activeGame="roulette";
+  /* gameMode = 관리자가 정한 설정값(roulette|yut|both)
+     activeGame = 지금 화면에 떠 있는 게임(roulette|yut). both 일 때만 손님이 고를 수 있다. */
+  var gameMode="roulette",activeGame="roulette";
 
   /* ── Supabase 게임 설정 로드 (wheel / active_game / yut 한 번에) ── */
   (async function loadSettingsFromSupabase(){
@@ -368,8 +402,9 @@
         if(row.key==="wheel"&&Array.isArray(v)&&v.length>=2){
           options=v.map(function(o,i){return{label:o.label,weight:+(o.weight)||1,color:PALETTE[i%8]};});
           draw();
-        }else if(row.key==="active_game"&&(v==="roulette"||v==="yut")){
-          activeGame=v;
+        }else if(row.key==="active_game"&&(v==="roulette"||v==="yut"||v==="both")){
+          gameMode=v;
+          activeGame=(v==="both")?"roulette":v;   /* both 의 기본 선택은 원반 */
         }else if(row.key==="yut"&&Array.isArray(v)&&v.length===5){
           yutOpts=v.map(function(o,i){
             return{name:o.name||YUT_DEFAULTS[i].name,label:o.label||YUT_DEFAULTS[i].label,weight:+(o.weight)||0};});
@@ -612,7 +647,7 @@
     if(phase!=="idle")return;
     /* 첫 스핀은 사용자 클릭 안에서 일어나므로 여기서 오디오를 깨운다 */
     audio(); if(actx.state==="suspended")actx.resume();
-    phase="cruise";setPhaseUI();
+    phase="cruise";setPhaseUI();lockTabs(true);
 
     var reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     var accel=reduce?450:ACCEL_MS;
@@ -688,7 +723,7 @@
     var lose=/꽝|다음 기회/.test(label),pt=$("prizeText");
     pt.textContent=label;pt.classList.toggle("lose",lose);
     $("prizeMsg").textContent=lose?"아쉬워요. 다음 기회에 도전!":"축하합니다! 직원에게 화면을 보여주세요.";
-    $("modal").classList.add("show");$("nextBtn").classList.add("show");
+    $("modal").classList.add("show");$("nextBtn").classList.add("show");lockTabs(true);
     if(window.sb){ window.sb.rpc("kiosk_spin",{p_member_id:savedMemberId,p_prize:label}).then(function(r){if(r&&r.error)console.error("spin save error",r.error);}).catch(function(e){console.error("spin save error",e);}); }
     if(!lose){fanfare();confetti();} /* 꽝일 땐 직전 clunk() 정지음으로 끝낸다 */
   }
@@ -793,7 +828,7 @@
     if(throwing)return;
     audio();if(actx.state==="suspended")actx.resume();
     if(!ysize)yutResize();
-    throwing=true;setDisabled(true);
+    throwing=true;setDisabled(true);lockTabs(true);
     $("yutName").classList.remove("show");
 
     /* 원반과 같은 방식 — 결과를 가중치로 먼저 뽑고 거기에 맞춰 착지시킨다 */
@@ -852,8 +887,16 @@
     $("spinBtn").textContent=yut?"던지기":"돌리기";
     var hub=$("hub");if(hub)hub.textContent=yut?"던지기":"돌리기";
     var stb=$("stopBtn");if(stb)stb.style.display=yut?"none":"";
+    var tabs=$("gameTabs");
+    if(tabs){
+      tabs.classList.toggle("show",gameMode==="both");
+      var bs=tabs.querySelectorAll(".game-btn");
+      for(var i=0;i<bs.length;i++)bs[i].classList.toggle("on",bs[i].dataset.game===activeGame);
+    }
     if(yut){yutResize();drawYut();}else{resize();setPhaseUI();}
   }
+  /* 게임이 진행 중이거나 결과 모달이 떠 있는 동안은 카드를 못 누르게 한다 */
+  function lockTabs(b){var t=$("gameTabs");if(t)t.classList.toggle("lock",b);}
   function play(){ if(activeGame==="yut")throwYut(); else startSpin(); }
   /* 가운데 hub 는 원반이 도는 동안 STOP 버튼 역할을 겸한다 */
   function hubClick(){
@@ -866,6 +909,14 @@
   $("spinBtn").onclick=play;
   $("hub").onclick=hubClick;
   $("stopBtn").onclick=stopSpin;
+
+  (function(){
+    var bs=document.querySelectorAll("#gameTabs .game-btn");
+    for(var i=0;i<bs.length;i++)bs[i].onclick=function(){
+      if(phase!=="idle"||throwing)return;
+      activeGame=this.dataset.game;applyGame();
+    };
+  })();
 
   $("soundBtn").onclick=function(){soundOn=!soundOn;var b=$("soundBtn");b.textContent=soundOn?"🔊":"🔇";b.classList.toggle("on",soundOn);};
   var _nb=$("nextBtn");if(_nb)_nb.addEventListener("click",function(){$("modal").classList.remove("show");resetSignup();});
