@@ -694,21 +694,186 @@
       G.add(s,[bp,g],t,t+dur+.01);
     }catch(e){}
   }
-  /* 볼링 사운드는 다음 커밋에서 붙인다. 그때까지는 기존 소리로 자리만 잡아둔다. */
-  function bSet(){ clunk(); }
-  function bRoll(){}
-  function bRollUpdate(){}
-  function bRollStop(){}
-  function bSqueak(){ yScuff(0); }
-  function bCrash(count,strike){
-    clunk();
-    for(var i=0;i<count;i++)(function(k){
-      setTimeout(function(){clack(.5+Math.random()*.3,(Math.random()-.5)*1.2);},60+k*90);
-    })(i);
+  /* ── 볼링 사운드 ──
+     볼링은 원반·윷보다 우렁차야 하므로 전용 서브 게인 1.25 를 거친다.
+     리미터가 뒤에 있어 클리핑은 나지 않는다. */
+  var bBus=null,bRollNodes=null;
+  function bGroup(x){
+    if(!bBus){bBus=actx.createGain();bBus.gain.value=1.25;bBus.connect(master);}
+    var out=actx.createGain();out.gain.value=1;
+    var pan=actx.createStereoPanner?actx.createStereoPanner():null;
+    if(pan){pan.pan.value=Math.max(-.7,Math.min(.7,x||0));out.connect(pan);pan.connect(bBus);}
+    else out.connect(bBus);
+    var pending=0,closed=false;
+    return {node:out,add:function(src,nodes,t0,t1){
+      var prev=src,i;
+      for(i=0;i<nodes.length;i++){prev.connect(nodes[i]);prev=nodes[i];}
+      prev.connect(out);pending++;
+      src.start(t0);if(t1!=null)src.stop(t1);
+      src.onended=function(){
+        try{src.disconnect();}catch(e){}
+        for(var j=0;j<nodes.length;j++){try{nodes[j].disconnect();}catch(e){}}
+        if(--pending===0&&!closed){closed=true;
+          try{out.disconnect();}catch(e){}
+          if(pan){try{pan.disconnect();}catch(e){}}}
+      };
+    }};
   }
-  function bPit(){ clunk(); }
-  function bGutter(){ clack(.4,.5); }
-  function bResult(tier,isLose){ if(!isLose&&tier===4)fanfare(); }
+  /* 공을 내려놓는 묵직한 탁 */
+  function bSet(){
+    if(!soundOn)return;
+    try{
+      audio();var t=actx.currentTime,G=bGroup(0);
+      var s=noise(),lp=actx.createBiquadFilter(),g=actx.createGain();
+      lp.type="lowpass";lp.frequency.value=220;
+      g.gain.setValueAtTime(.9,t);g.gain.exponentialRampToValueAtTime(.0001,t+.09);
+      G.add(s,[lp,g],t,t+.1);
+      var o=actx.createOscillator(),og=actx.createGain();
+      o.type="sine";
+      o.frequency.setValueAtTime(90,t);o.frequency.exponentialRampToValueAtTime(60,t+.12);
+      og.gain.setValueAtTime(.85,t);og.gain.exponentialRampToValueAtTime(.0001,t+.12);
+      G.add(o,[og],t,t+.13);
+    }catch(e){}
+  }
+  /* 구르는 저음 — dur(ms) 동안 유지하며 z 에 따라 컷오프가 올라간다 */
+  function bRoll(dur){
+    if(!soundOn)return;
+    try{
+      audio();var t=actx.currentTime,G=bGroup(0),end=t+dur/1000+.3;
+      var s=noise(),lp1=actx.createBiquadFilter(),lp2=actx.createBiquadFilter(),g=actx.createGain();
+      lp1.type="lowpass";lp1.frequency.setValueAtTime(180,t);
+      lp2.type="lowpass";lp2.frequency.value=400;
+      g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.35,t+.12);
+      G.add(s,[lp1,lp2,g],t,end);
+      /* 바닥을 타고 오는 진동감 */
+      var o=actx.createOscillator(),og=actx.createGain();
+      o.type="sine";o.frequency.value=38;
+      og.gain.setValueAtTime(.0001,t);og.gain.linearRampToValueAtTime(.12,t+.15);
+      G.add(o,[og],t,end);
+      bRollNodes={lp:lp1,g:g,pan:G.node,end:end};
+    }catch(e){}
+  }
+  function bRollUpdate(z,xl){
+    if(!bRollNodes||!actx)return;
+    try{
+      var t=actx.currentTime;
+      bRollNodes.lp.frequency.setTargetAtTime(180+140*z,t,.05);
+      bRollNodes.g.gain.setTargetAtTime(.35+.20*z,t,.08);
+    }catch(e){}
+  }
+  function bRollStop(){
+    if(!bRollNodes||!actx)return;
+    try{ bRollNodes.g.gain.setTargetAtTime(.0001,actx.currentTime,.05); }catch(e){}
+    bRollNodes=null;
+  }
+  /* 훅 구간의 미세한 삐걱 */
+  function bSqueak(){
+    if(!soundOn)return;
+    try{
+      audio();var t=actx.currentTime,G=bGroup(.2);
+      var s=noise(),bp=actx.createBiquadFilter(),g=actx.createGain();
+      bp.type="bandpass";bp.frequency.value=1200;bp.Q.value=6;
+      g.gain.setValueAtTime(.08,t);g.gain.exponentialRampToValueAtTime(.0001,t+.03);
+      G.add(s,[bp,g],t,t+.035);
+    }catch(e){}
+  }
+  /* 핀 충돌. count 만큼 나무 클랙이 연쇄하고, 스트라이크면 두 번째 붕괴까지 */
+  function bCrash(count,strike){
+    if(!soundOn)return;
+    try{
+      audio();var t=actx.currentTime,G=bGroup(0),amp=strike?1.2:1.0,i;
+      /* 첫 착탄 — 날카로운 버스트 */
+      var s=noise(),bp=actx.createBiquadFilter(),g=actx.createGain();
+      bp.type="bandpass";bp.frequency.value=3000;bp.Q.value=1.2;
+      g.gain.setValueAtTime(amp,t);g.gain.exponentialRampToValueAtTime(.0001,t+.06);
+      G.add(s,[bp,g],t,t+.07);
+      /* 나무 배음 클러스터 */
+      [[180,.8],[290,.5],[410,.3]].forEach(function(f){
+        var o=actx.createOscillator(),og=actx.createGain();
+        o.type="triangle";o.frequency.value=f[0];
+        og.gain.setValueAtTime(f[1]*amp,t);og.gain.exponentialRampToValueAtTime(.0001,t+.14);
+        G.add(o,[og],t,t+.15);
+      });
+      /* 바닥 울림 */
+      var s2=noise(),lp=actx.createBiquadFilter(),g2=actx.createGain();
+      lp.type="lowpass";lp.frequency.value=250;
+      g2.gain.setValueAtTime(.7*amp,t);g2.gain.exponentialRampToValueAtTime(.0001,t+.2);
+      G.add(s2,[lp,g2],t,t+.21);
+      /* 핀별 연쇄 — 윷의 나무 클랙 재사용 */
+      for(i=0;i<count;i++)(function(k){
+        setTimeout(function(){
+          clack(.5+Math.random()*.3,(Math.random()-.5)*1.2);
+          if(Math.random()<.35)rattle((Math.random()-.5)*1.2);
+        },60+k*(60+Math.random()*80));
+      })(i);
+      if(strike){
+        setTimeout(function(){
+          try{
+            var t2=actx.currentTime,G2=bGroup(0);
+            var s3=noise(),bp2=actx.createBiquadFilter(),g3=actx.createGain();
+            bp2.type="bandpass";bp2.frequency.value=2200;bp2.Q.value=1;
+            g3.gain.setValueAtTime(1.0,t2);g3.gain.exponentialRampToValueAtTime(.0001,t2+.18);
+            G2.add(s3,[bp2,g3],t2,t2+.19);
+          }catch(e){}
+          bPit();
+        },200);
+      }
+    }catch(e){}
+  }
+  /* 핏으로 떨어지는 쿵 */
+  function bPit(){
+    if(!soundOn)return;
+    try{
+      audio();var t=actx.currentTime,G=bGroup(0);
+      var o=actx.createOscillator(),og=actx.createGain();
+      o.type="sine";o.frequency.setValueAtTime(70,t);
+      o.frequency.exponentialRampToValueAtTime(48,t+.25);
+      og.gain.setValueAtTime(.95,t);og.gain.exponentialRampToValueAtTime(.0001,t+.25);
+      G.add(o,[og],t,t+.26);
+      var s=noise(),lp=actx.createBiquadFilter(),g=actx.createGain();
+      lp.type="lowpass";lp.frequency.value=150;
+      g.gain.setValueAtTime(.8,t);g.gain.exponentialRampToValueAtTime(.0001,t+.3);
+      G.add(s,[lp,g],t,t+.31);
+    }catch(e){}
+  }
+  /* 거터에 빠지는 덜컹 — 이후 굴림이 둔해진다 */
+  function bGutter(){
+    if(!soundOn)return;
+    try{
+      audio();var t=actx.currentTime,G=bGroup(0);
+      var s=noise(),bp=actx.createBiquadFilter(),g=actx.createGain();
+      bp.type="bandpass";bp.frequency.value=500;bp.Q.value=2.5;
+      g.gain.setValueAtTime(.6,t);g.gain.exponentialRampToValueAtTime(.0001,t+.08);
+      G.add(s,[bp,g],t,t+.09);
+      var o=actx.createOscillator(),og=actx.createGain();
+      o.type="triangle";o.frequency.value=120;
+      og.gain.setValueAtTime(.55,t);og.gain.exponentialRampToValueAtTime(.0001,t+.1);
+      G.add(o,[og],t,t+.11);
+      if(bRollNodes)try{bRollNodes.lp.frequency.setTargetAtTime(120,t,.08);}catch(e2){}
+    }catch(e){}
+  }
+  /* 결과 등급별 소리 */
+  function bResult(tier,isLose){
+    if(!soundOn)return;
+    try{
+      audio();var t=actx.currentTime,G=bGroup(0);
+      function note(f,at,dur,amp){
+        var o=actx.createOscillator(),g=actx.createGain();
+        o.type="triangle";o.frequency.value=f;
+        g.gain.setValueAtTime(.0001,at);
+        g.gain.linearRampToValueAtTime(Math.max(.0001,amp),at+.02);
+        g.gain.exponentialRampToValueAtTime(.0001,at+dur);
+        G.add(o,[g],at,at+dur+.01);
+      }
+      if(isLose||tier===0){ note(330,t,.3,.5); note(262,t+.16,.34,.5); return; }
+      if(tier===1){ note(523,t,.26,.55); return; }
+      if(tier===2){ note(523,t,.22,.55); note(659,t+.12,.26,.55); return; }
+      if(tier===3){ note(523,t,.22,.5); note(659,t+.1,.22,.5); note(784,t+.2,.3,.5); return; }
+      fanfare();
+      var last=t+.12+3*.11;
+      note(2094,last,.42,.34); note(1047,last+.12,.36,.123); note(2094,last+.12,.36,.123);
+    }catch(e){}
+  }
   /* 결과 팝업과 동시에 울리는 등급별 소리 */
   function yResult(idx,isLose){
     if(!soundOn)return;
