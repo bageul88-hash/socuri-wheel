@@ -86,7 +86,9 @@
 
   /* ── 윷 던지기 무대 ── */
   .stage.hide{display:none;}
-  .ystage{position:relative;width:72vmin;height:72vmin;display:none;}
+  /* 원반 무대(72vmin)보다 크다. 정점에서 가락이 2.8배로 커지므로 캔버스에 여유가 필요하다.
+     멍석과 가락의 화면 크기는 YSPAN 으로 보정해 예전과 같게 유지한다. */
+  .ystage{position:relative;width:98vmin;height:98vmin;display:none;}
   .ystage.show{display:block;}
   .ystage canvas{width:100%;height:100%;display:block;}
   /* 결과 글자는 무대 위쪽에 띄운다 — 클로즈업된 가락을 가리지 않게 */
@@ -208,6 +210,7 @@
     .col-logo,.col-form,.col-wheel,.col-side{height:auto;}
     .logo{width:42vmin;height:42vmin;}
     .stage{width:82vmin;height:82vmin;}
+    .ystage{width:94vmin;height:94vmin;}
     .col-side{align-items:center;text-align:center;}
     .col-side h2,.col-side .sub{text-align:center;}
   }
@@ -877,14 +880,15 @@
   }
   /* 던지기 전 가지런히 놓인 상태 */
   function restSticks(){
-    var d=ysize||300;sticks=[];
+    var d=ysize||300,u=d*YSPAN;sticks=[];
     for(var i=0;i<4;i++)sticks.push({
-      flat:true,x:(i-1.5)*d*.145,y:0,gy:0,rot:(i-1.5)*.04,spin:0,h:0,landed:true});
+      flat:true,x:(i-1.5)*u*.11,y:0,gx:(i-1.5)*u*.11,gy:0,
+      roll:0,pitch:0,yaw:(i-1.5)*.05,h:0,stage:4,landed:true});
     yZoom=1;
   }
   /* ── 탑다운 원근 ──
      카메라가 무대 바로 위에 있어 윷이 올라올수록 커진다. */
-  function hScale(h){ return 1+0.9*h; }          /* 바닥 1.0 → 정점 1.9 */
+  function hScale(h){ return 1+1.8*h; }          /* 바닥 1.0 → 정점 2.8 */
   /* 비행 높이. 상승은 감속하며 정점에 닿고, 하강은 2.2제곱으로 가속한다. */
   function hFlight(p,peak){
     if(p<.42){var u=p/.42;return peak*(1-Math.pow(1-u,2));}
@@ -912,32 +916,166 @@
     yctx.arcTo(x+w,y,x+w,y+h,r);yctx.arcTo(x+w,y+h,x,y+h,r);
     yctx.arcTo(x,y+h,x,y,r);yctx.arcTo(x,y,x+w,y,r);yctx.closePath();
   }
-  /* 한 가락. spin 의 cos 부호로 평면/등이 갈리고, 절댓값으로 납작해져 구르는 느낌을 낸다. */
+  /* 한 가락을 3축으로 그린다.
+       yaw   화면 평면 방향
+       pitch 끝에서 끝으로 넘어가는 회전 → 길이가 cos 으로 줄고 두께가 sin 으로 는다(원근 단축)
+       roll  긴 축 회전 → 배(X표)/등(둥근 면)을 가르고, 납작해져 구르는 느낌을 낸다 */
   function drawStick(s,cx,cy,L,W){
-    var c=Math.cos(s.spin),flatUp=c>=0;
+    var cp=Math.cos(s.pitch||0),sp=Math.sin(s.pitch||0);
+    var len=L*Math.max(.18,Math.abs(cp)),th=W*(1+.6*Math.abs(sp));
+    var c=Math.cos(s.roll||0),flatUp=c>=0;
+    var edge=Math.abs(cp)<.35;         /* 거의 세로로 선 상태 — 옆면(나무결)이 보인다 */
     yctx.save();
-    yctx.translate(cx,cy);yctx.rotate(s.rot);
+    yctx.translate(cx,cy);yctx.rotate(s.yaw||0);
     yctx.scale(1,.18+.82*Math.abs(c));
-    var g=yctx.createLinearGradient(0,-W/2,0,W/2);
-    if(flatUp){g.addColorStop(0,"#f6e4c2");g.addColorStop(.5,"#e8cf9f");g.addColorStop(1,"#d2b47e");}
-    else      {g.addColorStop(0,"#9d7242");g.addColorStop(.45,"#7d552c");g.addColorStop(1,"#57381a");}
-    yctx.fillStyle=g;yRound(-L/2,-W/2,L,W,W*.42);yctx.fill();
-    yctx.strokeStyle="rgba(58,36,12,.6)";yctx.lineWidth=Math.max(1,W*.07);yctx.stroke();
-    if(flatUp){
-      yctx.strokeStyle="rgba(122,82,30,.55)";yctx.lineWidth=Math.max(1,W*.06);
+    var g=yctx.createLinearGradient(0,-th/2,0,th/2);
+    if(edge){      g.addColorStop(0,"#7a5a2e");g.addColorStop(.5,"#5e421f");g.addColorStop(1,"#3f2b12");}
+    else if(flatUp){g.addColorStop(0,"#f6e4c2");g.addColorStop(.5,"#e8cf9f");g.addColorStop(1,"#d2b47e");}
+    else           {g.addColorStop(0,"#9d7242");g.addColorStop(.45,"#7d552c");g.addColorStop(1,"#57381a");}
+    yctx.fillStyle=g;yRound(-len/2,-th/2,len,th,Math.min(th,len)*.42);yctx.fill();
+    yctx.strokeStyle="rgba(58,36,12,.6)";yctx.lineWidth=Math.max(1,th*.07);yctx.stroke();
+    if(edge){
+      /* 옆면 나무결 */
+      yctx.strokeStyle="rgba(28,18,6,.45)";yctx.lineWidth=Math.max(1,th*.05);
       yctx.beginPath();
-      yctx.moveTo(-L*.07,-W*.2);yctx.lineTo(L*.07,W*.2);
-      yctx.moveTo(L*.07,-W*.2);yctx.lineTo(-L*.07,W*.2);
+      yctx.moveTo(-len*.34,0);yctx.lineTo(len*.34,0);
+      yctx.stroke();
+    }else if(flatUp){
+      yctx.strokeStyle="rgba(122,82,30,.55)";yctx.lineWidth=Math.max(1,th*.06);
+      yctx.beginPath();
+      yctx.moveTo(-len*.07,-th*.2);yctx.lineTo(len*.07,th*.2);
+      yctx.moveTo(len*.07,-th*.2);yctx.lineTo(-len*.07,th*.2);
       yctx.stroke();
     }else{
       yctx.fillStyle="rgba(255,236,192,.16)";
-      yRound(-L/2+W*.22,-W*.28,L-W*.44,W*.22,W*.11);yctx.fill();
+      yRound(-len/2+th*.22,-th*.28,Math.max(0,len-th*.44),th*.22,th*.11);yctx.fill();
     }
     yctx.restore();
   }
-  /* 정점(1.9배)·줌(1.38배)에도 무대를 벗어나지 않도록 가락과 이동 폭을 잡는다.
-     YRISE 는 본체가 그림자에서 떠오르는 거리(무대 대비). */
-  var YL=.24,YW=.054,YRISE=.10;
+  /* 모든 가락 기하는 캔버스가 아니라 "놀이 단위" u = d*YSPAN 기준이다.
+     캔버스를 넓게 잡고(94vmin) u 를 그 0.75 로 두면, 멍석·가락의 화면 크기는
+     예전(72vmin 캔버스)과 같으면서 정점 2.8배가 들어갈 여유가 생긴다. */
+  var YSPAN=.68,YL=.24,YW=.054,YRISE=.20;
+  var YLAND=.24;      /* 착지 반경 (u) */
+  var YGAP=.09;       /* 착지 지점 최소 간격 (u) */
+  var YZOOM=1.60;     /* 결과 클로즈업 배율 */
+  /* 회전한 사각형 2개의 겹침 판정 (분리축 정리) */
+  function obbHit(ax,ay,aa,bx,by,ba,L,W){
+    var axes=[aa,aa+Math.PI/2,ba,ba+Math.PI/2],k;
+    var dx=bx-ax,dy=by-ay;
+    for(k=0;k<4;k++){
+      var c=Math.cos(axes[k]),si=Math.sin(axes[k]);
+      var pa=Math.abs(L/2*Math.cos(aa-axes[k]))+Math.abs(W/2*Math.sin(aa-axes[k]));
+      var pb=Math.abs(L/2*Math.cos(ba-axes[k]))+Math.abs(W/2*Math.sin(ba-axes[k]));
+      if(Math.abs(dx*c+dy*si)>pa+pb)return false;   /* 분리축 발견 */
+    }
+    return true;
+  }
+  /* 착지 지점 후보 — 반경 안에서 서로 YGAP 이상, yaw 는 12° 이상 벌린다 */
+  function yLandSpots(){
+    var out=[],tries,i;
+    for(i=0;i<4;i++){
+      var ok=false,sp=null;
+      for(tries=0;tries<200&&!ok;tries++){
+        var ang=Math.random()*TAU,rad=Math.sqrt(Math.random())*YLAND;
+        sp={lx:Math.cos(ang)*rad,ly:Math.sin(ang)*rad,
+            yaw:(Math.random()-.5)*(Math.PI/3)};   /* -30°~30° */
+        ok=true;
+        for(var j=0;j<out.length;j++){
+          if(Math.hypot(sp.lx-out[j].lx,sp.ly-out[j].ly)<YGAP){ok=false;break;}
+          var dyaw=Math.abs(sp.yaw-out[j].yaw)%Math.PI;
+          if(Math.min(dyaw,Math.PI-dyaw)<12*Math.PI/180){ok=false;break;}
+        }
+      }
+      if(!ok){
+        /* 후보를 못 찾으면 링 자리로. yaw 는 12° 규칙을 지키도록 다시 고른다. */
+        sp=yRingSpot(i);
+        for(var q=0;q<24;q++){
+          var cand=sp.yaw+q*(Math.PI/24)*(q%2?-1:1),good=true;
+          for(var m=0;m<out.length;m++)
+            if(yawGap(cand,out[m].yaw)<12*Math.PI/180){good=false;break;}
+          if(good){sp.yaw=cand;break;}
+        }
+      }
+      out.push(sp);
+    }
+    return out;
+  }
+  /* 최후 수단 — 90° 간격 링. 중심 거리 0.34u 라 어떤 yaw 에서도 절대 안 겹친다. */
+  function yRingSpot(i){
+    var a=i*Math.PI/2+Math.PI/7;
+    return {lx:Math.cos(a)*YLAND,ly:Math.sin(a)*YLAND,yaw:(i-1.5)*(Math.PI/7)};
+  }
+  /* yaw 두 개가 (가락은 앞뒤 대칭이므로 mod 180°) 얼마나 벌어져 있는지 */
+  function yawGap(a,b){
+    var dy=Math.abs(a-b)%Math.PI;
+    return Math.min(dy,Math.PI-dy);
+  }
+  /* 착지 겹침 해소. 두 번까지 밀어내고, 그래도 안 되면 빈 자리로 재배치한다.
+     roll 은 여기서 절대 건드리지 않는다 — 배/등이 추첨 결과와 어긋나면 안 된다.
+     좌표는 모두 u 단위. moved=true 면 3차 바운스를 한 번 더 준다. */
+  function ySettle(me,others){
+    var L=YL,W=YW,lx=me.lx,ly=me.ly,yaw=me.yaw,moved=false,att,k;
+    function clash(cx,cy,ya){
+      for(var t=0;t<others.length;t++){
+        var o=others[t];
+        if(obbHit(cx,cy,ya,o.lx,o.ly,o.yaw,L,W))return true;
+        if(Math.hypot(cx-o.lx,cy-o.ly)<YGAP)return true;
+      }
+      return false;
+    }
+    for(att=0;att<2;att++){
+      if(!clash(lx,ly,yaw))return {lx:lx,ly:ly,yaw:yaw,moved:moved};
+      /* 가장 가까운 가락의 반대 방향으로 민다 */
+      var near=null,nd=1e9;
+      for(k=0;k<others.length;k++){
+        var dd=Math.hypot(lx-others[k].lx,ly-others[k].ly);
+        if(dd<nd){nd=dd;near=others[k];}
+      }
+      var dx=lx-near.lx,dy=ly-near.ly,m=Math.hypot(dx,dy);
+      if(m<1e-6){dx=Math.cos(att*2.1);dy=Math.sin(att*2.1);m=1;}
+      var push=.04+Math.random()*.03;
+      lx+=dx/m*push; ly+=dy/m*push;
+      /* 무대 밖으로 밀리지 않게 반경을 묶는다 */
+      var rr=Math.hypot(lx,ly),cap=YLAND*1.1;
+      if(rr>cap){lx=lx/rr*cap;ly=ly/rr*cap;}
+      /* yaw 를 틀되 다른 가락과 너무 나란해지지 않는 쪽으로 */
+      var kick=(8+Math.random()*7)*Math.PI/180;
+      var cand=[yaw+kick,yaw-kick],bestYaw=cand[0],bestSep=-1;
+      for(k=0;k<2;k++){
+        var sep=9;
+        for(var t2=0;t2<others.length;t2++)sep=Math.min(sep,yawGap(cand[k],others[t2].yaw));
+        if(sep>bestSep){bestSep=sep;bestYaw=cand[k];}
+      }
+      yaw=bestYaw; moved=true;
+    }
+    if(!clash(lx,ly,yaw))return {lx:lx,ly:ly,yaw:yaw,moved:moved};
+    var f=yFreeSpot(yaw,others);
+    return {lx:f.lx,ly:f.ly,yaw:f.yaw,moved:true};
+  }
+  /* others 와 겹치지도 붙지도 않는 자리를 각도×반경 격자에서 찾는다.
+     후보를 다 훑어도 없으면 가장 멀리 떨어진 자리를 돌려준다(항상 결과가 있다). */
+  function yFreeSpot(yaw,others){
+    var L=YL,W=YW,best=null,bestScore=-1,ai,ri;
+    for(ri=0;ri<6;ri++){
+      var rad=.10+ri*.048;                       /* 0.10 ~ 0.34 */
+      for(ai=0;ai<24;ai++){
+        var a=ai*TAU/24+ri*.13;
+        var cx=Math.cos(a)*rad,cy=Math.sin(a)*rad;
+        var ok=true,minD=9,k;
+        for(k=0;k<others.length;k++){
+          var o=others[k];
+          if(obbHit(cx,cy,yaw,o.lx,o.ly,o.yaw,L,W)){ok=false;break;}
+          var dd=Math.hypot(cx-o.lx,cy-o.ly);
+          if(dd<YGAP){ok=false;break;}
+          if(dd<minD)minD=dd;
+        }
+        if(ok)return {lx:cx,ly:cy,yaw:yaw};
+        if(minD>bestScore){bestScore=minD;best={lx:cx,ly:cy,yaw:yaw};}
+      }
+    }
+    return best;
+  }
   function drawYut(){
     if(!yctx||!ysize)return;
     var d=ysize;yctx.clearRect(0,0,d,d);
@@ -947,23 +1085,29 @@
     yctx.fillStyle=mg;yctx.beginPath();yctx.arc(d/2,d/2,R,0,TAU);yctx.fill();
     yctx.strokeStyle="#b8893a";yctx.lineWidth=d*.016;yctx.stroke();
 
-    var L=d*YL,W=d*YW,i,s;
+    var u=d*YSPAN,L=u*YL,W=u*YW,i,s;
     yctx.save();
     if(yZoom!==1){yctx.translate(d/2,d/2);yctx.scale(yZoom,yZoom);yctx.translate(-d/2,-d/2);}
-    /* 그림자는 본체와 분리해 바닥에 남긴다. 높을수록 작고 흐리고 옅어진다. */
+    /* 그림자는 본체와 분리해 바닥에 남긴다. 높을수록 작고 흐리고 옅어진다.
+       yaw·pitch 단축은 본체와 똑같이 적용하고 blur/alpha 만 높이 규칙을 따른다. */
     for(i=0;i<4;i++){
       s=sticks[i];if(!s)continue;
-      var h=s.h||0,sh=1-.45*h;
+      var h=s.h||0,sh=1-.6*h;                       /* 1.0 → 0.4 배 */
+      var cp=Math.abs(Math.cos(s.pitch||0)),spn=Math.abs(Math.sin(s.pitch||0));
       yctx.save();
-      yctx.globalAlpha=.55-.37*h;
-      yctx.filter="blur("+(2+8*h).toFixed(2)+"px)";
+      yctx.globalAlpha=Math.max(0,.55-.43*h);       /* .55 → .12 */
+      yctx.filter="blur("+(2+12*h).toFixed(2)+"px)";/* 2 → 14px */
       yctx.fillStyle="#000";
       yctx.beginPath();
-      yctx.ellipse(d/2+s.x,d/2+s.gy+W*.5,L*.48*sh,W*.34*sh,s.rot,0,TAU);
+      yctx.ellipse(d/2+s.gx,d/2+s.gy,
+        L*.48*sh*Math.max(.18,cp),W*.34*sh*(1+.6*spn),s.yaw||0,0,TAU);
       yctx.fill();yctx.restore();
     }
-    for(i=0;i<4;i++){
-      s=sticks[i];if(!s)continue;
+    /* 겹칠 때 높은 가락이 위로 오도록 h 오름차순 */
+    var order=[0,1,2,3].filter(function(k){return !!sticks[k];})
+      .sort(function(a,b){return (sticks[a].h||0)-(sticks[b].h||0);});
+    for(i=0;i<order.length;i++){
+      s=sticks[order[i]];
       var sc=hScale(s.h||0);
       drawStick(s,d/2+s.x,d/2+s.y,L*sc,W*sc);
     }
@@ -994,66 +1138,119 @@
 
     /* 착지 시각을 먼저 잡고(90~180ms 간격) 거기서 비행시간을 빼 출발을 늦춘다.
        landAt 시작값이 최대 비행시간이라 delay 가 음수가 되지 않는다. */
-    var B1=reduce?0:220,B2=reduce?0:140;
-    var landAt=reduce?600:2100;
+    var u=d*YSPAN;
+    var B1=reduce?0:220,B2=reduce?0:140,B3=reduce?0:100;
+    var landAt=reduce?600:2500;
+    var spots=yLandSpots();
     sticks=[];
     for(var i=0;i<4;i++){
-      var dur=reduce?600:(1700+Math.random()*400);
+      var dur=reduce?600:(2000+Math.random()*500);   /* 2.0~2.5초 */
+      var sgn=Math.random()<.5?-1:1;
       sticks.push({
         flat:faces[i],
-        peak:.85+Math.random()*.15,
+        peak:.8+Math.random()*.2,
         dur:dur, delay:landAt-dur, landAt:landAt,
-        /* 확산 폭은 줌 1.38배에도 멍석(반지름 .46d) 안에 들어오도록 잡았다 */
-        x0:(i-1.5)*d*.04, x1:(i-1.5)*d*.09+(Math.random()-.5)*d*.025,
-        gy:(Math.random()-.5)*d*.10,
-        rot0:(Math.random()-.5)*.5, rot1:(Math.random()-.5)*1.2,
-        turns:3+Math.floor(Math.random()*3),
+        /* 출발은 중앙 근처, 착지는 흩어진 지점 */
+        sx:(Math.random()-.5)*u*.12, sy:(Math.random()-.5)*u*.08,
+        lx:spots[i].lx*u, ly:spots[i].ly*u,
+        sway:(reduce?0:sgn*u*.05), swayPh:Math.random()*TAU,
+        /* 3축 */
+        roll0:0, rollTurns:3+Math.floor(Math.random()*3),
+        pitchTurns:1+Math.floor(Math.random()*3), pitchEnd:(Math.random()<.5?0:Math.PI),
+        yaw0:(Math.random()-.5)*(70*Math.PI/180),   /* -35°~35° */
+        yawTurn:(Math.random()<.5?-1:1)*((40+Math.random()*80)*Math.PI/180),
+        yawEnd:spots[i].yaw, yawKick:0,
         scuffAt:(.35+Math.random()*.2),
         scuffed:(Math.random()<.45),   /* 재생 여부 자체가 랜덤 */
-        stage:0, rattled:false,
-        x:0,y:0,rot:0,spin:0,h:0
+        stage:0, rattled:false, third:false,
+        x:0,y:0,gx:0,gy:0,roll:0,pitch:0,yaw:0,h:0
       });
       landAt+=reduce?40:(90+Math.random()*90);
     }
+    /* 착지 직후 이미 내려앉은 가락과 겹치면 밀어낸다.
+       roll 은 절대 건드리지 않는다 — 배/등이 추첨 결과와 어긋나면 안 된다. */
+    function resolveLanding(i){
+      var s=sticks[i],j;
+      /* u 단위로 정규화해 순수 함수와 같은 좌표계에서 푼다 */
+      var me={lx:s.gx/u,ly:s.gy/u,yaw:s.yaw},others=[];
+      for(j=0;j<4;j++) if(j!==i&&sticks[j].stage!==0)
+        others.push({lx:sticks[j].gx/u,ly:sticks[j].gy/u,yaw:sticks[j].yaw});
+      var fixed=ySettle(me,others);
+      if(fixed.moved){
+        s.lx=s.gx=fixed.lx*u; s.ly=s.gy=fixed.ly*u;
+        s.yawEnd=fixed.yaw; s.yawKick=0; s.yaw=fixed.yaw;
+        s.third=true;                       /* 밀려난 가락은 한 번 더 튄다 */
+      }
+    }
     whoosh();
+    var lastAirAt=-1e9;
     var lastRest=0;
-    for(i=0;i<4;i++)lastRest=Math.max(lastRest,sticks[i].landAt+B1+B2);
+    for(i=0;i<4;i++)lastRest=Math.max(lastRest,sticks[i].landAt+B1+B2+B3);
     /* 구르는 소리는 두 가락만 */
     var rattlePick={};rattlePick[Math.random()*4|0]=1;rattlePick[Math.random()*4|0]=1;
 
     var t0=performance.now();
     (function frame(now){
-      var el=now-t0,busy=false,i,s;
+      var el=now-t0,busy=false,i,j,s;
       for(i=0;i<4;i++){
         s=sticks[i];
         var p=Math.max(0,Math.min(1,(el-s.delay)/s.dur));
         if(p<1){
           busy=true;
-          var e=1-Math.pow(1-p,3);
+          var w=spinWarp(p);
           s.h=hFlight(p,s.peak);
-          s.x=s.x0+(s.x1-s.x0)*e;
+          /* 좌우 흔들림 1회. 직선이 아니라 호를 그리며 날아가 서로 교차한다. */
+          var swy=s.sway*Math.sin(Math.PI*p+s.swayPh*0);
+          s.gx=s.sx+(s.lx-s.sx)*p+swy;
+          s.gy=s.sy+(s.ly-s.sy)*p+swy*.5;
+          s.x=s.gx;
           s.y=s.gy-d*YRISE*s.h;        /* 본체가 그림자에서 떠오른 만큼의 거리 */
-          s.rot=s.rot0+(s.rot1-s.rot0)*e;
-          s.spin=(s.turns*TAU+(s.flat?0:Math.PI))*spinWarp(p);
-          if(s.scuffed&&p>=s.scuffAt){s.scuffed=false;yScuff(s.x/(d*.5));}
+          /* 3축 모두 정점 근처에서 함께 느려진다 */
+          s.roll=(s.rollTurns*TAU+(s.flat?0:Math.PI))*w;
+          s.pitch=(s.pitchTurns*TAU+s.pitchEnd)*w;
+          s.yaw=s.yaw0+(s.yawTurn+(s.yawEnd-s.yaw0))*w+s.yawKick;
+          if(s.scuffed&&p>=s.scuffAt){s.scuffed=false;yScuff(s.gx/(d*.5));}
         }else{
-          /* 착지 뒤 두 번 튀고 멎는다. 바운스에도 원근 스케일이 그대로 적용된다. */
+          /* 착지 뒤 튀고 멎는다. 바운스에도 원근 스케일이 그대로 적용된다. */
           s.h=0;
-          s.spin=s.turns*TAU+(s.flat?0:Math.PI);
-          s.x=s.x1;s.rot=s.rot1;s.y=s.gy;
+          s.roll=s.rollTurns*TAU+(s.flat?0:Math.PI);   /* 착지면은 여기서 확정 */
+          s.pitch=s.pitchEnd;
+          s.gx=s.lx;s.gy=s.ly;s.x=s.gx;s.yaw=s.yawEnd+s.yawKick;
           var after=el-s.landAt;
-          if(s.stage===0){s.stage=1;clack(1,s.x/(d*.5));}
+          if(s.stage===0){
+            s.stage=1;
+            resolveLanding(i);                        /* 겹치면 밀어낸다 */
+            clack(1,s.gx/(d*.5));
+          }
+          var tb=B1+B2+(s.third?B3:0);
           if(B1>0&&after<B1){ busy=true; s.h=.18*Math.sin(Math.PI*(after/B1)); }
           else if(B1>0&&B2>0&&after<B1+B2){
             busy=true;
-            if(s.stage===1){s.stage=2;clack(.55,s.x/(d*.5));}
+            if(s.stage===1){s.stage=2;clack(.55,s.gx/(d*.5));}
             s.h=.06*Math.sin(Math.PI*((after-B1)/B2));
-          }else if(s.stage<3){
-            s.stage=3;
-            if(B2>0)clack(.3,s.x/(d*.5));
-            if(!s.rattled&&rattlePick[i]){s.rattled=true;rattle(s.x/(d*.5));}
+          }else if(s.third&&after<tb){
+            busy=true;
+            if(s.stage===2){s.stage=3;clack(.35,s.gx/(d*.5));}
+            s.h=.04*Math.sin(Math.PI*((after-B1-B2)/B3));
+          }else if(s.stage<4){
+            s.stage=4;
+            if(B2>0&&!s.third)clack(.3,s.gx/(d*.5));
+            if(!s.rattled&&rattlePick[i]){s.rattled=true;rattle(s.gx/(d*.5));}
           }
           s.y=s.gy-d*YRISE*s.h;        /* 바운스 높이도 본체–그림자 거리에 반영 */
+        }
+      }
+      /* 공중 근접 — 판정 없는 연출. 스치는 소리와 살짝 튕기는 yaw 만. */
+      if(!reduce&&el-lastAirAt>90){
+        var near=false;
+        for(i=0;i<4&&!near;i++)for(j=i+1;j<4&&!near;j++){
+          var a=sticks[i],b=sticks[j];
+          if(a.h<=0||b.h<=0)continue;
+          if(Math.hypot(a.gx-b.gx,a.gy-b.gy,(a.h-b.h)*u*.5)<u*.05){
+            near=true;lastAirAt=el;yScuff((a.gx+b.gx)/d);
+            a.yawKick+=(Math.random()-.5)*(10*Math.PI/180);
+            b.yawKick-=(Math.random()-.5)*(10*Math.PI/180);
+          }
         }
       }
       drawYut();
@@ -1072,7 +1269,7 @@
         var z0=performance.now();
         (function zoom(zn){
           var q=Math.min(1,(zn-z0)/550);
-          yZoom=1+.38*(1-Math.pow(1-q,3));
+          yZoom=1+(YZOOM-1)*(1-Math.pow(1-q,3));
           drawYut();
           if(q<1){requestAnimationFrame(zoom);return;}
           nm.classList.add("show");
