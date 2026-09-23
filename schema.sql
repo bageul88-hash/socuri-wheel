@@ -53,14 +53,14 @@ create table public.spins (
 create index spins_member_created_idx on public.spins (member_id, created_at desc);
 
 -- ────────────── 4. settings ──────────────
--- key/value 설정 저장소. 현재는 'wheel'(원반 옵션 배열) 한 건만 사용.
+-- key/value 설정 저장소. 'wheel'(원반 옵션), 'active_game'(오늘의 게임), 'yut'(윷 설정) 세 건 사용.
 create table public.settings (
   key        text primary key,
   value      jsonb       not null,
   updated_at timestamptz not null default now()
 );
 
--- ⚠ 'wheel' 행 시드는 필수.
+-- ⚠ 'wheel'/'active_game'/'yut' 행 시드는 필수.
 --   admin.html 저장 로직이 update → 실패 시 insert 인데, supabase-js v2 는
 --   0행 update 를 에러로 취급하지 않음. 행이 없으면 저장이 조용히 무시됨.
 insert into public.settings (key, value) values
@@ -71,6 +71,17 @@ insert into public.settings (key, value) values
      {"label":"사이즈 업","weight":3},
      {"label":"디저트 1개","weight":1},
      {"label":"포인트 2배","weight":2}
+   ]'::jsonb),
+  -- 오늘의 게임: "roulette"(원반) | "yut"(윷 던지기). admin.html 오늘의 게임 탭에서 변경.
+  ('active_game', '"roulette"'::jsonb),
+  -- 윷 던지기 결과별 경품/가중치. 도·개·걸·윷·모 순서 고정 5개.
+  -- 기본 가중치 25/38/25/6/6 은 윷가락 4개의 실제 확률(4·6·4·1·1 / 16)과 일치.
+  ('yut', '[
+     {"name":"도","label":"꽝! 다음 기회에","weight":25},
+     {"name":"개","label":"1,000원 할인","weight":38},
+     {"name":"걸","label":"사이즈 업","weight":25},
+     {"name":"윷","label":"디저트 1개","weight":6},
+     {"name":"모","label":"아메리카노 1잔","weight":6}
    ]'::jsonb)
 on conflict (key) do nothing;
 
@@ -114,7 +125,7 @@ alter table public.settings     enable row level security;
 alter table public.spaces       enable row level security;
 alter table public.reservations enable row level security;
 
--- settings : 키오스크가 원반 설정을 읽어야 하므로 anon SELECT 허용
+-- settings : 키오스크가 게임 설정(wheel/active_game/yut)을 읽어야 하므로 anon SELECT 허용
 create policy settings_select_all on public.settings
   for select to anon, authenticated using (true);
 create policy settings_insert_admin on public.settings

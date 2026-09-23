@@ -280,6 +280,16 @@
   .w-legend{font-size:12px;color:var(--ink-soft);}
   .w-save-row{margin-top:18px;display:flex;align-items:center;gap:14px;}
   #wStatus{font-size:13px;color:var(--ink-soft);}
+  /* ── 오늘의 게임 탭 ── */
+  .g-pick{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px;}
+  .g-card{border:2px solid var(--line);background:var(--paper);border-radius:14px;padding:20px 14px;cursor:pointer;text-align:center;font-family:var(--font);transition:border-color .15s,background .15s,box-shadow .15s;}
+  .g-card .ic{font-size:32px;line-height:1;}
+  .g-card b{display:block;margin-top:9px;font-size:15px;color:var(--ink);}
+  .g-card small{display:block;margin-top:4px;font-size:12px;color:var(--ink-soft);line-height:1.4;}
+  .g-card.on{border-color:var(--red);background:#fff6f3;box-shadow:0 6px 18px rgba(214,31,58,.13);}
+  .g-card.on b{color:var(--red);}
+  .y-name{width:32px;flex-shrink:0;margin-right:9px;text-align:center;font-size:15px;font-weight:800;color:var(--brass);}
+  #gStatus{font-size:13px;color:var(--ink-soft);}
   /* ── 공간예약 ── */
   .bk-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px;}
   .bk-form{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:20px;}
@@ -334,6 +344,7 @@
   <button class="mob-nav-item" data-view="tiers">★ 등급</button>
   <button class="mob-nav-item" data-view="sms">✉ 문자</button>
   <button class="mob-nav-item" data-view="wheel">🎡 원반설정</button>
+  <button class="mob-nav-item" data-view="todaygame">🎲 오늘의 게임</button>
   <button class="mob-logout-btn" id="mobLogoutBtn">로그아웃</button>
 </div>
 
@@ -348,6 +359,7 @@
     <button class="nav-item" data-view="tiers"><span class="ic">★</span>등급 관리</button>
     <button class="nav-item" data-view="sms"><span class="ic">✉</span>행사 문자</button>
     <button class="nav-item" data-view="wheel"><span class="ic">🎡</span>원반설정</button>
+    <button class="nav-item" data-view="todaygame"><span class="ic">🎲</span>오늘의 게임</button>
   </nav>
   <div class="side-foot">SOCURI Coffee · Admin<br>고객·포인트·문자</div>
 </aside>
@@ -460,6 +472,34 @@
         <div class="w-save-row">
           <button class="btn green" id="wSaveBtn" style="flex:1;padding:13px;">저장</button>
           <span id="wStatus"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 오늘의 게임 -->
+    <section class="view" id="todaygame">
+      <div class="card" style="padding:22px 20px;max-width:600px;">
+        <h2 class="sec" style="margin-bottom:4px;">🎲 오늘의 게임</h2>
+        <p style="color:var(--ink-soft);font-size:13px;margin:0 0 18px;">키오스크에 표시할 게임을 고르세요. 저장하면 손님 화면을 새로 열 때 반영됩니다.</p>
+        <div class="g-pick">
+          <button class="g-card" data-game="roulette">
+            <span class="ic">🎡</span><b>원반 돌리기</b><small>돌림판을 돌려 경품 추첨</small>
+          </button>
+          <button class="g-card" data-game="yut">
+            <span class="ic">🎲</span><b>윷 던지기</b><small>윷을 던져 도·개·걸·윷·모</small>
+          </button>
+        </div>
+
+        <h3 style="font-size:15px;font-weight:800;margin:0 0 4px;">윷 경품 설정</h3>
+        <p style="color:var(--ink-soft);font-size:13px;margin:0 0 14px;">도·개·걸·윷·모 각각의 경품과 <b>당첨 가중치</b>를 설정하세요. 기본값은 윷가락 4개의 실제 확률입니다.</p>
+        <div id="yOptList"></div>
+        <div class="w-foot">
+          <button class="w-reset" id="yResetBtn">기본값으로 초기화</button>
+          <span class="w-legend" id="ySumLabel"></span>
+        </div>
+        <div class="w-save-row">
+          <button class="btn green" id="gSaveBtn" style="flex:1;padding:13px;">저장</button>
+          <span id="gStatus"></span>
         </div>
       </div>
     </section>
@@ -614,6 +654,9 @@ async function doLogin(){
     loadData();
     renderTierCards();
     updateSmsPreview();
+    /* 로그인 직후에도 설정 탭이 기본값이 아닌 실제 저장값을 보이도록 */
+    loadWheelOpts();
+    loadGameSettings();
   }
 }
 
@@ -949,8 +992,10 @@ async function saveWheelOpts(){
   if(st){st.textContent="저장 중…";st.style.color="var(--ink-soft)";}
   try{
     var arr=wheelOpts.map(function(o){return{label:o.label,weight:o.weight};});
-    var r=await sb.from("settings").update({value:arr,updated_at:new Date()}).eq("key","wheel");
-    if(r.error) await sb.from("settings").insert({key:"wheel",value:arr});
+    /* upsert 를 쓰는 이유: update 는 대상 행이 없어도 에러가 아니라서
+       settings 에 'wheel' 행이 없으면 저장이 조용히 무시된다. */
+    var r=await sb.from("settings").upsert({key:"wheel",value:arr,updated_at:new Date()},{onConflict:"key"});
+    if(r.error) throw r.error;
     if(st){st.textContent="✔ 저장됐습니다";st.style.color="var(--green)";}
   }catch(e){
     if(st){st.textContent="저장 실패: "+e.message;st.style.color="var(--red)";}
@@ -965,6 +1010,90 @@ async function saveWheelOpts(){
   if(wp)wp.onclick=function(){setWheelCount(wheelOpts.length+1);};
   if(wrb)wrb.onclick=function(){wheelOpts=W_DEFAULTS.map(function(o,i){return{label:o.label,weight:o.weight,color:W_PALETTE[i%8]};});renderWheelOpts();};
   if(wsb)wsb.onclick=saveWheelOpts;
+})();
+
+/* ══════════════════════════════════
+   오늘의 게임 (원반 ↔ 윷)
+══════════════════════════════════ */
+var Y_DEFAULTS=[
+  {name:"도",label:"꽝! 다음 기회에",weight:25},{name:"개",label:"1,000원 할인",weight:38},
+  {name:"걸",label:"사이즈 업",weight:25},{name:"윷",label:"디저트 1개",weight:6},
+  {name:"모",label:"아메리카노 1잔",weight:6}
+];
+var yutOpts=Y_DEFAULTS.map(function(o){return{name:o.name,label:o.label,weight:o.weight};});
+var activeGame="roulette";
+
+function renderGamePick(){
+  document.querySelectorAll(".g-card").forEach(function(el){
+    el.classList.toggle("on",el.dataset.game===activeGame);
+  });
+}
+
+function renderYutOpts(){
+  var ol=document.getElementById("yOptList"),sl=document.getElementById("ySumLabel");
+  if(!ol)return;
+  var sum=0,i;for(i=0;i<yutOpts.length;i++)sum+=Math.max(0,yutOpts[i].weight);sum=sum||1;
+  if(sl)sl.textContent="합계 가중치 "+sum;
+  ol.innerHTML="";
+  yutOpts.forEach(function(o,idx){
+    var row=document.createElement("div");row.className="w-opt";
+    var pct=Math.round(Math.max(0,o.weight)/sum*100);
+    row.innerHTML="<span class=\"y-name\">"+o.name+"</span>"+
+      "<input type=\"text\" value=\""+o.label.replace(/\"/g,"&quot;")+"\" data-i=\""+idx+"\" maxlength=\"14\" class=\"w-inp\">"+
+      "<div class=\"w-wbox\"><button data-ydec=\""+idx+"\" class=\"w-step-btn\">−</button><b>"+o.weight+"</b><button data-yinc=\""+idx+"\" class=\"w-step-btn\">+</button></div>"+
+      "<span class=\"w-pct\">"+pct+"%</span>";
+    ol.appendChild(row);
+  });
+  var t=ol.querySelectorAll("input[type=text]");
+  for(i=0;i<t.length;i++)t[i].oninput=function(e){yutOpts[+e.target.dataset.i].label=e.target.value;};
+  var inc=ol.querySelectorAll("[data-yinc]");
+  for(i=0;i<inc.length;i++)inc[i].onclick=function(){var k=+this.dataset.yinc;yutOpts[k].weight=Math.min(99,yutOpts[k].weight+1);renderYutOpts();};
+  var dec=ol.querySelectorAll("[data-ydec]");
+  for(i=0;i<dec.length;i++)dec[i].onclick=function(){var k=+this.dataset.ydec;yutOpts[k].weight=Math.max(0,yutOpts[k].weight-1);renderYutOpts();};
+}
+
+async function loadGameSettings(){
+  try{
+    var r=await sb.from("settings").select("key,value").in("key",["active_game","yut"]);
+    if(r.data)r.data.forEach(function(row){
+      var v=row.value;
+      if(row.key==="active_game"&&(v==="roulette"||v==="yut"))activeGame=v;
+      else if(row.key==="yut"&&Array.isArray(v)&&v.length===5)
+        yutOpts=v.map(function(o,i){
+          return{name:o.name||Y_DEFAULTS[i].name,label:o.label||Y_DEFAULTS[i].label,weight:+(o.weight)||0};});
+    });
+  }catch(e){}
+  renderGamePick();renderYutOpts();
+}
+
+async function saveGameSettings(){
+  var st=document.getElementById("gStatus");
+  if(st){st.textContent="저장 중…";st.style.color="var(--ink-soft)";}
+  try{
+    var arr=yutOpts.map(function(o){return{name:o.name,label:o.label,weight:o.weight};});
+    var now=new Date();
+    var r=await sb.from("settings").upsert([
+      {key:"active_game",value:activeGame,updated_at:now},
+      {key:"yut",value:arr,updated_at:now}
+    ],{onConflict:"key"});
+    if(r.error) throw r.error;
+    if(st){st.textContent="✔ 저장됐습니다";st.style.color="var(--green)";}
+  }catch(e){
+    if(st){st.textContent="저장 실패: "+e.message;st.style.color="var(--red)";}
+  }
+  setTimeout(function(){if(st)st.textContent="";},3000);
+}
+
+(function(){
+  document.querySelectorAll(".g-card").forEach(function(b){
+    b.onclick=function(){activeGame=b.dataset.game;renderGamePick();};
+  });
+  var yr=document.getElementById("yResetBtn"),gs=document.getElementById("gSaveBtn");
+  if(yr)yr.onclick=function(){
+    yutOpts=Y_DEFAULTS.map(function(o){return{name:o.name,label:o.label,weight:o.weight};});
+    renderYutOpts();
+  };
+  if(gs)gs.onclick=saveGameSettings;
 })();
 
 /* ══════════════════════════════════
@@ -1105,6 +1234,7 @@ async function saveWheelOpts(){
     loadData();
     renderTierCards();
     loadWheelOpts();
+    loadGameSettings();
     loadBookingData();
   } else {
     showLogin();
