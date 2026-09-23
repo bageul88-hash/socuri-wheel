@@ -291,6 +291,9 @@
   .g-card.on b{color:var(--red);}
   .y-name{width:32px;flex-shrink:0;margin-right:9px;text-align:center;font-size:15px;font-weight:800;color:var(--brass);}
   #gStatus{font-size:13px;color:var(--ink-soft);}
+  .sc-box{margin-top:26px;padding-top:20px;border-top:1px solid var(--line);}
+  .sc-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  #scStatus{font-size:13px;color:var(--ink-soft);}
   /* ── 공간예약 ── */
   .bk-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px;}
   .bk-form{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:20px;}
@@ -504,6 +507,20 @@
         <div class="w-save-row">
           <button class="btn green" id="gSaveBtn" style="flex:1;padding:13px;">저장</button>
           <span id="gStatus"></span>
+        </div>
+
+        <div class="sc-box">
+          <h3 style="font-size:15px;font-weight:800;margin:0 0 4px;">관리자 테스트 코드</h3>
+          <p style="color:var(--ink-soft);font-size:13px;margin:0 0 12px;line-height:1.6;">
+            키오스크 회원번호 칸에 이 코드를 입력하면 가입 없이 바로 게임 진입(테스트용, 기록 안 남음).
+            실제 회원 전화번호 뒷자리와 겹치지 않는 값으로.
+          </p>
+          <div class="sc-row">
+            <input type="text" id="scInput" class="w-inp" maxlength="4" inputmode="numeric"
+                   pattern="[0-9]*" placeholder="9999" style="max-width:130px;letter-spacing:.2em;font-weight:800;">
+            <button class="btn dark" id="scSaveBtn">저장</button>
+            <span id="scStatus"></span>
+          </div>
         </div>
       </div>
     </section>
@@ -1026,6 +1043,7 @@ var Y_DEFAULTS=[
 ];
 var yutOpts=Y_DEFAULTS.map(function(o){return{name:o.name,label:o.label,weight:o.weight};});
 var activeGame="roulette";
+var staffCode="9999";
 
 function renderGamePick(){
   document.querySelectorAll(".g-card").forEach(function(el){
@@ -1058,16 +1076,40 @@ function renderYutOpts(){
 
 async function loadGameSettings(){
   try{
-    var r=await sb.from("settings").select("key,value").in("key",["active_game","yut"]);
+    var r=await sb.from("settings").select("key,value").in("key",["active_game","yut","staff_code"]);
     if(r.data)r.data.forEach(function(row){
       var v=row.value;
       if(row.key==="active_game"&&(v==="roulette"||v==="yut"||v==="both"))activeGame=v;
       else if(row.key==="yut"&&Array.isArray(v)&&v.length===5)
         yutOpts=v.map(function(o,i){
           return{name:o.name||Y_DEFAULTS[i].name,label:o.label||Y_DEFAULTS[i].label,weight:+(o.weight)||0};});
+      else if(row.key==="staff_code"&&typeof v==="string")staffCode=v;
     });
   }catch(e){}
   renderGamePick();renderYutOpts();
+  var si=document.getElementById("scInput");if(si)si.value=staffCode;
+}
+
+async function saveStaffCode(){
+  var st=document.getElementById("scStatus"),si=document.getElementById("scInput");
+  if(!si)return;
+  var v=(si.value||"").trim();
+  if(!/^\d{4}$/.test(v)){
+    if(st){st.textContent="숫자 4자리로 입력해 주세요.";st.style.color="var(--red)";}
+    setTimeout(function(){if(st)st.textContent="";},3000);
+    return;
+  }
+  if(st){st.textContent="저장 중…";st.style.color="var(--ink-soft)";}
+  try{
+    var r=await sb.from("settings").upsert(
+      {key:"staff_code",value:v,updated_at:new Date()},{onConflict:"key"});
+    if(r.error) throw r.error;
+    staffCode=v;
+    if(st){st.textContent="✔ 저장됐습니다";st.style.color="var(--green)";}
+  }catch(e){
+    if(st){st.textContent="저장 실패: "+e.message;st.style.color="var(--red)";}
+  }
+  setTimeout(function(){if(st)st.textContent="";},3000);
 }
 
 async function saveGameSettings(){
@@ -1098,6 +1140,9 @@ async function saveGameSettings(){
     renderYutOpts();
   };
   if(gs)gs.onclick=saveGameSettings;
+  var sc=document.getElementById("scSaveBtn"),si=document.getElementById("scInput");
+  if(sc)sc.onclick=saveStaffCode;
+  if(si)si.oninput=function(){si.value=si.value.replace(/\D/g,"").slice(0,4);};
 })();
 
 /* ══════════════════════════════════

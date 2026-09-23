@@ -124,6 +124,12 @@
   .icon-btn{width:7.5vmin;height:7.5vmin;min-width:52px;min-height:52px;border-radius:15px;border:1px solid rgba(205,162,76,.3);
     background:rgba(39,32,25,.85);color:var(--cream);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:clamp(20px,2.6vmin,26px);margin-left:11px;}
   .icon-btn.on{color:var(--brass);}
+  /* 관리자 테스트 배지 — isStaff 일 때만 붙는다. 손님 화면에는 절대 안 보인다. */
+  #staffBadge{display:none;align-items:center;align-self:center;
+    background:var(--red);color:#fff;font-weight:900;font-size:clamp(12px,1.5vmin,16px);
+    letter-spacing:.14em;padding:.7vmin 1.4vmin;border-radius:9px;
+    box-shadow:0 4px 14px rgba(214,31,58,.45);}
+  #staffBadge.show{display:flex;}
 
   /* ── 게임 선택 카드 (active_game="both" 일 때만) ──
      admin.html 오늘의 게임 탭의 .g-card 디자인을 키오스크 크기로 옮겨온 것.
@@ -258,6 +264,7 @@
 
 <section id="game" class="screen">
   <div class="corner">
+    <span id="staffBadge">TEST</span>
     <button class="icon-btn" id="soundBtn" title="효과음">🔊</button>
   </div>
   <div id="gameTabs">
@@ -329,6 +336,9 @@
 
 
   var savedMemberId=null;
+  /* 관리자 테스트 모드 — 이 코드로 들어오면 가입·1일 1회 제한을 건너뛰고
+     결과도 저장하지 않는다. 손님에게는 어떤 흔적도 보이면 안 된다. */
+  var staffCode="9999",isStaff=false;
   var $=function(id){return document.getElementById(id);};
   /* ---------- signup ---------- */
 
@@ -360,7 +370,9 @@
     $("game").classList.add("active");
     requestAnimationFrame(function(){applyGame();fxResize();});
   };
+  function setStaffBadge(on){var b=$("staffBadge");if(b)b.classList.toggle("show",!!on);}
   function resetSignup(){
+    isStaff=false;savedMemberId=null;setStaffBadge(false);
     $("name").value="";$("phone").value="";$("agree").checked=false;fail("");
     memberNum="";$("memberNum").value="";$("memberMsg").textContent="";$("memberMsg").className="member-msg";$("nextBtn").classList.remove("show");
     $("numpadDisplay").textContent="회원번호를 입력하세요";$("numpadDisplay").classList.add("empty");
@@ -392,11 +404,11 @@
      activeGame = 지금 화면에 떠 있는 게임(roulette|yut). both 일 때만 손님이 고를 수 있다. */
   var gameMode="roulette",activeGame="roulette";
 
-  /* ── Supabase 게임 설정 로드 (wheel / active_game / yut 한 번에) ── */
+  /* ── Supabase 게임 설정 로드 (wheel / active_game / yut / staff_code 한 번에) ── */
   (async function loadSettingsFromSupabase(){
     if(!window.sb)return;
     try{
-      var r=await window.sb.from("settings").select("key,value").in("key",["wheel","active_game","yut"]);
+      var r=await window.sb.from("settings").select("key,value").in("key",["wheel","active_game","yut","staff_code"]);
       if(r.error||!r.data)return;
       r.data.forEach(function(row){
         var v=row.value;
@@ -409,6 +421,8 @@
         }else if(row.key==="yut"&&Array.isArray(v)&&v.length===5){
           yutOpts=v.map(function(o,i){
             return{name:o.name||YUT_DEFAULTS[i].name,label:o.label||YUT_DEFAULTS[i].label,weight:+(o.weight)||0};});
+        }else if(row.key==="staff_code"&&typeof v==="string"&&/^\d{4}$/.test(v)){
+          staffCode=v;
         }
       });
       applyGame();
@@ -824,7 +838,8 @@
     pt.textContent=label;pt.classList.toggle("lose",lose);
     $("prizeMsg").textContent=lose?"아쉬워요. 다음 기회에 도전!":"축하합니다! 직원에게 화면을 보여주세요.";
     $("modal").classList.add("show");$("nextBtn").classList.add("show");lockTabs(true);
-    if(window.sb){ window.sb.rpc("kiosk_spin",{p_member_id:savedMemberId,p_prize:label}).then(function(r){if(r&&r.error)console.error("spin save error",r.error);}).catch(function(e){console.error("spin save error",e);}); }
+    /* 관리자 테스트는 기록을 남기지 않는다 */
+    if(window.sb&&!isStaff){ window.sb.rpc("kiosk_spin",{p_member_id:savedMemberId,p_prize:label}).then(function(r){if(r&&r.error)console.error("spin save error",r.error);}).catch(function(e){console.error("spin save error",e);}); }
     if(!lose){fanfare();confetti();} /* 꽝일 땐 직전 clunk() 정지음으로 끝낸다 */
   }
 
@@ -1134,6 +1149,18 @@
   async function checkInMember(){
     if(!memberNum||memberNum.length<MAX_NUM_LEN){
       setMemberMsg("4자리를 모두 입력해 주세요.",true);return;
+    }
+    /* 관리자 테스트 코드 — RPC 를 한 번도 타지 않고 바로 진입한다 */
+    if(memberNum===staffCode){
+      hideNumpad();
+      isStaff=true;savedMemberId=null;
+      setStaffBadge(true);
+      $("who").textContent="관리자 테스트 모드";
+      setMemberMsg("");
+      $("signup").classList.remove("active");
+      $("game").classList.add("active");
+      requestAnimationFrame(function(){applyGame();fxResize();});
+      return;
     }
     if(!window.sb){setMemberMsg("서버 연결 오류.",true);return;}
     setMemberMsg("확인 중…");

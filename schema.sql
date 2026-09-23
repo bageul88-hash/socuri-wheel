@@ -53,14 +53,15 @@ create table public.spins (
 create index spins_member_created_idx on public.spins (member_id, created_at desc);
 
 -- ────────────── 4. settings ──────────────
--- key/value 설정 저장소. 'wheel'(원반 옵션), 'active_game'(오늘의 게임), 'yut'(윷 설정) 세 건 사용.
+-- key/value 설정 저장소. 'wheel'(원반 옵션), 'active_game'(오늘의 게임),
+-- 'yut'(윷 설정), 'staff_code'(관리자 테스트 코드) 네 건 사용.
 create table public.settings (
   key        text primary key,
   value      jsonb       not null,
   updated_at timestamptz not null default now()
 );
 
--- ⚠ 'wheel'/'active_game'/'yut' 행 시드는 필수.
+-- ⚠ 'wheel'/'active_game'/'yut'/'staff_code' 행 시드는 필수.
 --   admin.html 저장 로직이 update → 실패 시 insert 인데, supabase-js v2 는
 --   0행 update 를 에러로 취급하지 않음. 행이 없으면 저장이 조용히 무시됨.
 insert into public.settings (key, value) values
@@ -83,7 +84,11 @@ insert into public.settings (key, value) values
      {"name":"걸","label":"사이즈 업","weight":25},
      {"name":"윷","label":"디저트 1개","weight":6},
      {"name":"모","label":"아메리카노 1잔","weight":6}
-   ]'::jsonb)
+   ]'::jsonb),
+  -- 관리자 테스트 코드. 키오스크 회원번호 칸에 이 코드를 넣으면
+  -- 가입·1일 1회 제한 없이 게임에 바로 진입하고, 결과는 기록되지 않는다.
+  -- ⚠ 실제 회원 전화번호 뒷 4자리와 겹치지 않는 값으로 둘 것.
+  ('staff_code', '"9999"'::jsonb)
 on conflict (key) do nothing;
 
 -- ────────────── 5. spaces ──────────────
@@ -126,7 +131,7 @@ alter table public.settings     enable row level security;
 alter table public.spaces       enable row level security;
 alter table public.reservations enable row level security;
 
--- settings : 키오스크가 게임 설정(wheel/active_game/yut)을 읽어야 하므로 anon SELECT 허용
+-- settings : 키오스크가 게임 설정(wheel/active_game/yut/staff_code)을 읽어야 하므로 anon SELECT 허용
 create policy settings_select_all on public.settings
   for select to anon, authenticated using (true);
 create policy settings_insert_admin on public.settings
