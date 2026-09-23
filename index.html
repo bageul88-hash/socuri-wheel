@@ -89,10 +89,11 @@
   .ystage{position:relative;width:72vmin;height:72vmin;display:none;}
   .ystage.show{display:block;}
   .ystage canvas{width:100%;height:100%;display:block;}
-  .yut-name{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) scale(.6);
-    font-size:clamp(50px,15vmin,170px);font-weight:900;color:#f6ce4b;letter-spacing:.04em;
-    text-shadow:0 5px 26px rgba(0,0,0,.7),0 0 12px rgba(246,206,75,.35);
-    opacity:0;transition:opacity .22s ease-out,transform .22s ease-out;pointer-events:none;}
+  /* 결과 글자는 무대 위쪽에 띄운다 — 클로즈업된 가락을 가리지 않게 */
+  .yut-name{position:absolute;left:50%;top:17%;transform:translate(-50%,-50%) scale(.6);
+    font-size:clamp(72px,12vmin,140px);font-weight:900;color:#FFC400;letter-spacing:.04em;
+    text-shadow:0 4px 18px rgba(0,0,0,.8),0 0 26px rgba(255,196,0,.5);
+    opacity:0;transition:opacity .4s ease-out,transform .4s ease-out;pointer-events:none;}
   .yut-name.show{opacity:1;transform:translate(-50%,-50%) scale(1);}
 
   .col-side{flex:.9;display:flex;flex-direction:column;justify-content:center;padding:3vmin 5vmin;height:100vh;}
@@ -366,7 +367,7 @@
     $("game").classList.remove("active");$("signup").classList.add("active");
     clearSpinTimers();phase="idle";setPhaseUI();
     rotation=-Math.PI/2;
-    $("yutName").classList.remove("show");restSticks();drawYut();
+    $("yutName").classList.remove("show");yZoom=1;restSticks();drawYut();
     /* 다음 손님: 카드 재활성 + both 모드면 기본 선택(원반)으로 되돌린다 */
     if(gameMode==="both")activeGame="roulette";
     lockTabs(false);applyGame();
@@ -747,7 +748,7 @@
 
   /* ══════════ 윷 던지기 ══════════ */
   var ycv=$("yut"),yctx=ycv?ycv.getContext("2d"):null;
-  var ysize=0,sticks=[],throwing=false;
+  var ysize=0,sticks=[],throwing=false,yZoom=1;
 
   function yutResize(){
     if(!ycv||!yctx)return;
@@ -764,7 +765,33 @@
   function restSticks(){
     var d=ysize||300;sticks=[];
     for(var i=0;i<4;i++)sticks.push({
-      flat:true,x:(i-1.5)*d*.145,y:0,gy:0,rot:(i-1.5)*.04,spin:0,landed:true});
+      flat:true,x:(i-1.5)*d*.145,y:0,gy:0,rot:(i-1.5)*.04,spin:0,h:0,landed:true});
+    yZoom=1;
+  }
+  /* ── 탑다운 원근 ──
+     카메라가 무대 바로 위에 있어 윷이 올라올수록 커진다. */
+  function hScale(h){ return 1+0.9*h; }          /* 바닥 1.0 → 정점 1.9 */
+  /* 비행 높이. 상승은 감속하며 정점에 닿고, 하강은 2.2제곱으로 가속한다. */
+  function hFlight(p,peak){
+    if(p<.42){var u=p/.42;return peak*(1-Math.pow(1-u,2));}
+    var v=(p-.42)/.58;return peak*(1-Math.pow(v,2.2));
+  }
+  /* 회전 속도는 정점 부근에서 0.4배로 느려진다. 그 속도를 적분해 정규화한
+     단조 증가 표를 한 번만 만들어 두고 쓴다 — p=1 에서 정확히 1 이 되어야
+     착지 면(평면/등)이 추첨 결과와 어긋나지 않는다. */
+  var SPIN_W=null;
+  function spinRate(u){ return 1-.6*Math.exp(-Math.pow((u-.42)/.2,2)); }
+  function spinWarp(p){
+    if(!SPIN_W){
+      SPIN_W=new Float64Array(101);
+      var acc=0,prev=spinRate(0),i,u,cur;
+      for(i=1;i<=100;i++){u=i/100;cur=spinRate(u);acc+=(prev+cur)/2*.01;SPIN_W[i]=acc;prev=cur;}
+      for(i=0;i<=100;i++)SPIN_W[i]/=acc;
+    }
+    if(p<=0)return 0;
+    if(p>=1)return 1;
+    var x=p*100,i0=Math.floor(x),f=x-i0;
+    return SPIN_W[i0]+(SPIN_W[i0+1]-SPIN_W[i0])*f;
   }
   function yRound(x,y,w,h,r){
     yctx.beginPath();yctx.moveTo(x+r,y);
@@ -794,23 +821,39 @@
     }
     yctx.restore();
   }
+  /* 정점(1.9배)·줌(1.38배)에도 무대를 벗어나지 않도록 가락과 이동 폭을 잡는다.
+     YRISE 는 본체가 그림자에서 떠오르는 거리(무대 대비). */
+  var YL=.24,YW=.054,YRISE=.10;
   function drawYut(){
     if(!yctx||!ysize)return;
     var d=ysize;yctx.clearRect(0,0,d,d);
+    /* 멍석 — 줌의 영향을 받지 않는다 */
     var R=d*.46,mg=yctx.createRadialGradient(d/2,d/2,R*.15,d/2,d/2,R);
     mg.addColorStop(0,"#5d4527");mg.addColorStop(1,"#2e2113");
     yctx.fillStyle=mg;yctx.beginPath();yctx.arc(d/2,d/2,R,0,TAU);yctx.fill();
     yctx.strokeStyle="#b8893a";yctx.lineWidth=d*.016;yctx.stroke();
 
-    var L=d*.40,W=d*.088,i;
+    var L=d*YL,W=d*YW,i,s;
+    yctx.save();
+    if(yZoom!==1){yctx.translate(d/2,d/2);yctx.scale(yZoom,yZoom);yctx.translate(-d/2,-d/2);}
+    /* 그림자는 본체와 분리해 바닥에 남긴다. 높을수록 작고 흐리고 옅어진다. */
     for(i=0;i<4;i++){
-      var s=sticks[i];if(!s)continue;
-      yctx.save();yctx.globalAlpha=.3;yctx.fillStyle="#000";
+      s=sticks[i];if(!s)continue;
+      var h=s.h||0,sh=1-.45*h;
+      yctx.save();
+      yctx.globalAlpha=.55-.37*h;
+      yctx.filter="blur("+(2+8*h).toFixed(2)+"px)";
+      yctx.fillStyle="#000";
       yctx.beginPath();
-      yctx.ellipse(d/2+s.x,d/2+s.gy+W*.5,L*.48,W*.34,s.rot,0,TAU);
+      yctx.ellipse(d/2+s.x,d/2+s.gy+W*.5,L*.48*sh,W*.34*sh,s.rot,0,TAU);
       yctx.fill();yctx.restore();
-      drawStick(s,d/2+s.x,d/2+s.y,L,W);
     }
+    for(i=0;i<4;i++){
+      s=sticks[i];if(!s)continue;
+      var sc=hScale(s.h||0);
+      drawStick(s,d/2+s.x,d/2+s.y,L*sc,W*sc);
+    }
+    yctx.restore();
   }
   function weightedPickYut(){
     var sum=0,i;for(i=0;i<yutOpts.length;i++)sum+=Math.max(0,yutOpts[i].weight);sum=sum||1;
@@ -835,44 +878,88 @@
     var idx=weightedPickYut(),faces=shuffledFaces(YUT_FLATS[idx]);
     var d=ysize,reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+    /* 착지 시각을 먼저 잡고(90~180ms 간격) 거기서 비행시간을 빼 출발을 늦춘다.
+       landAt 시작값이 최대 비행시간이라 delay 가 음수가 되지 않는다. */
+    var B1=reduce?0:220,B2=reduce?0:140;
+    var landAt=reduce?600:2100;
     sticks=[];
-    for(var i=0;i<4;i++)sticks.push({
-      flat:faces[i],
-      x0:(i-1.5)*d*.05, x1:(i-1.5)*d*.145+(Math.random()-.5)*d*.045,
-      gy:(Math.random()-.5)*d*.17,
-      rot0:(Math.random()-.5)*.5, rot1:(Math.random()-.5)*1.2,
-      turns:3+Math.floor(Math.random()*3),
-      delay:i*(reduce?25:65),
-      landed:false,x:0,y:0,rot:0,spin:0
-    });
+    for(var i=0;i<4;i++){
+      var dur=reduce?600:(1700+Math.random()*400);
+      sticks.push({
+        flat:faces[i],
+        peak:.85+Math.random()*.15,
+        dur:dur, delay:landAt-dur, landAt:landAt,
+        /* 확산 폭은 줌 1.38배에도 멍석(반지름 .46d) 안에 들어오도록 잡았다 */
+        x0:(i-1.5)*d*.04, x1:(i-1.5)*d*.09+(Math.random()-.5)*d*.025,
+        gy:(Math.random()-.5)*d*.10,
+        rot0:(Math.random()-.5)*.5, rot1:(Math.random()-.5)*1.2,
+        turns:3+Math.floor(Math.random()*3),
+        stage:0,
+        x:0,y:0,rot:0,spin:0,h:0
+      });
+      landAt+=reduce?40:(90+Math.random()*90);
+    }
     whoosh();
+    var lastRest=0;
+    for(i=0;i<4;i++)lastRest=Math.max(lastRest,sticks[i].landAt+B1+B2);
 
-    var T=reduce?900:2300,t0=performance.now();
+    var t0=performance.now();
     (function frame(now){
-      var el=now-t0,busy=false,i;
+      var el=now-t0,busy=false,i,s;
       for(i=0;i<4;i++){
-        var s=sticks[i];
-        var span=T-s.delay;
-        var p=Math.max(0,Math.min(1,(el-s.delay)/span));
-        if(p<1)busy=true;
-        var e=1-Math.pow(1-p,3);
-        /* 본 포물선 뒤에 작게 한 번 더 튄다 */
-        var arc;
-        if(p<.82)arc=Math.sin(Math.PI*(p/.82));
-        else{var q=(p-.82)/.18;arc=Math.sin(Math.PI*q)*.15*(1-q);}
-        s.x=s.x0+(s.x1-s.x0)*e;
-        s.y=s.gy-d*.30*arc;
-        s.rot=s.rot0+(s.rot1-s.rot0)*e;
-        s.spin=(s.turns*TAU+(s.flat?0:Math.PI))*e;
-        if(p>=.82&&!s.landed){s.landed=true;clack();}
+        s=sticks[i];
+        var p=Math.max(0,Math.min(1,(el-s.delay)/s.dur));
+        if(p<1){
+          busy=true;
+          var e=1-Math.pow(1-p,3);
+          s.h=hFlight(p,s.peak);
+          s.x=s.x0+(s.x1-s.x0)*e;
+          s.y=s.gy-d*YRISE*s.h;        /* 본체가 그림자에서 떠오른 만큼의 거리 */
+          s.rot=s.rot0+(s.rot1-s.rot0)*e;
+          s.spin=(s.turns*TAU+(s.flat?0:Math.PI))*spinWarp(p);
+        }else{
+          /* 착지 뒤 두 번 튀고 멎는다. 바운스에도 원근 스케일이 그대로 적용된다. */
+          s.h=0;
+          s.spin=s.turns*TAU+(s.flat?0:Math.PI);
+          s.x=s.x1;s.rot=s.rot1;s.y=s.gy;
+          var after=el-s.landAt;
+          if(s.stage===0){s.stage=1;clack();}
+          if(B1>0&&after<B1){ busy=true; s.h=.18*Math.sin(Math.PI*(after/B1)); }
+          else if(B1>0&&B2>0&&after<B1+B2){
+            busy=true;
+            if(s.stage===1){s.stage=2;clack();}
+            s.h=.06*Math.sin(Math.PI*((after-B1)/B2));
+          }else if(s.stage<3){
+            s.stage=3;
+            if(B2>0)clack();
+          }
+          s.y=s.gy-d*YRISE*s.h;        /* 바운스 높이도 본체–그림자 거리에 반영 */
+        }
       }
       drawYut();
-      if(busy)requestAnimationFrame(frame);
-      else{
-        throwing=false;setDisabled(false);clunk();
-        var nm=$("yutName");nm.textContent=yutOpts[idx].name+"!";nm.classList.add("show");
-        setTimeout(function(){finishWith(yutOpts[idx].label);},750);
+      if(busy||el<lastRest){requestAnimationFrame(frame);return;}
+
+      /* 마지막 가락이 멎고 250ms 뒤 결과 클로즈업 */
+      throwing=false;setDisabled(false);
+      var nm=$("yutName");nm.textContent=yutOpts[idx].name+"!";
+      if(reduce){
+        yZoom=1;drawYut();nm.classList.add("show");clunk();
+        setTimeout(function(){finishWith(yutOpts[idx].label);},1200);
+        return;
       }
+      setTimeout(function(){
+        var z0=performance.now();
+        (function zoom(zn){
+          var q=Math.min(1,(zn-z0)/550);
+          yZoom=1+.38*(1-Math.pow(1-q,3));
+          drawYut();
+          if(q<1){requestAnimationFrame(zoom);return;}
+          nm.classList.add("show");
+          clunk();
+          /* 팝업 소리와 모달 팡파르가 겹치지 않도록 충분히 띄운다 */
+          setTimeout(function(){finishWith(yutOpts[idx].label);},1200);
+        })(z0);
+      },250);
     })(t0);
   }
 
