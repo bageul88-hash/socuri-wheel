@@ -106,6 +106,18 @@
     background:linear-gradient(180deg,#f6d680,var(--brass));box-shadow:0 12px 26px rgba(168,128,47,.4);transition:transform .1s,filter .15s;width:100%;max-width:460px;}
   .spin-cta:active{transform:translateY(1px);}
   .spin-cta:disabled{opacity:.5;cursor:default;}
+  .stop-cta{border:none;border-radius:20px;cursor:pointer;padding:20px 0;margin-top:14px;
+    font-size:clamp(18px,2.3vmin,25px);font-weight:900;letter-spacing:.09em;color:#fff;
+    background:linear-gradient(180deg,#f2536b,#c8102e);
+    transition:transform .1s,opacity .18s;width:100%;max-width:460px;}
+  .stop-cta:not(:disabled){animation:stopPulse 1.15s ease-in-out infinite;}
+  .stop-cta:active{transform:translateY(1px);}
+  .stop-cta:disabled{opacity:.28;cursor:default;animation:none;box-shadow:none;}
+  @keyframes stopPulse{
+    0%,100%{box-shadow:0 10px 24px rgba(200,16,46,.42),0 0 0 0 rgba(242,83,107,.5);}
+    50%    {box-shadow:0 10px 30px rgba(200,16,46,.58),0 0 0 13px rgba(242,83,107,0);}
+  }
+  @media (prefers-reduced-motion: reduce){ .stop-cta:not(:disabled){animation:none;} }
 
   .corner{position:absolute;top:calc(2.4vmin + env(safe-area-inset-top));right:calc(2.6vmin + env(safe-area-inset-right));z-index:8;display:flex;}
   .icon-btn{width:7.5vmin;height:7.5vmin;min-width:52px;min-height:52px;border-radius:15px;border:1px solid rgba(205,162,76,.3);
@@ -242,6 +254,7 @@
       <h2 id="gameTitle">원반 돌리기</h2>
       <p class="sub" id="gameSub">버튼을 눌러 오늘의 행운을 뽑아보세요</p>
       <button class="spin-cta" id="spinBtn">돌리기</button>
+      <button class="stop-cta" id="stopBtn" disabled>STOP</button>
     </div>
   </div>
 </section>
@@ -322,6 +335,7 @@
     memberNum="";$("memberNum").value="";$("memberMsg").textContent="";$("memberMsg").className="member-msg";$("nextBtn").classList.remove("show");
     $("numpadDisplay").textContent="회원번호를 입력하세요";$("numpadDisplay").classList.add("empty");
     $("game").classList.remove("active");$("signup").classList.add("active");
+    clearSpinTimers();phase="idle";setPhaseUI();
     rotation=-Math.PI/2;
     $("yutName").classList.remove("show");restSticks();drawYut();
   }
@@ -364,7 +378,7 @@
       applyGame();
     }catch(e){}
   })();
-  var rotation=-Math.PI/2,spinning=false,soundOn=true;
+  var rotation=-Math.PI/2,soundOn=true;
   var TAU=Math.PI*2,POINTER=-Math.PI/2;
 
   var cv=$("wheel"),ctx=cv.getContext("2d");
@@ -552,28 +566,107 @@
   function weightedPick(){var sum=0,i;for(i=0;i<options.length;i++)sum+=Math.max(0,options[i].weight);sum=sum||1;
     var r=Math.random()*sum;for(i=0;i<options.length;i++){r-=Math.max(0,options[i].weight);if(r<=0)return i;}return options.length-1;}
 
-  function spin(){
-    if(spinning)return;
+  /* ══════════ 원반: idle → cruise → stopping ══════════ */
+  var VMAX=0.016;          /* 등속 구간 각속도 (rad/ms) */
+  var ACCEL_MS=1100;       /* 이 시간 동안 ease-out 으로 VMAX 까지 가속 */
+  var AUTO_STOP_MS=8000;   /* STOP 을 안 누르면 자동 정지 */
+  var phase="idle",spinRaf=null,autoStopTimer=null;
+
+  /* ── 핀 틱: cruise·stopping 이 함께 쓴다 ── */
+  var pinSeg=0,lastPin=0,prevRot=0,prevNow=0,lastTickAt=0;
+  function pinInit(now){
+    pinSeg=TAU/(options.length*4);
+    lastPin=Math.floor(rotation/pinSeg);
+    prevRot=rotation;prevNow=now;lastTickAt=0;
+  }
+  function pinTick(now){
+    var pin=Math.floor(rotation/pinSeg);
+    if(pin!==lastPin){
+      /* 최고 속도에선 한 프레임에 핀 여러 개를 넘는다.
+         최소 간격을 두지 않으면 틱이 뭉쳐 버즈가 되고 노드도 폭증한다. */
+      if(now-lastTickAt>=16){
+        var dt=now-prevNow;
+        var spd=dt>0?Math.abs(rotation-prevRot)/dt:0; /* rad/ms */
+        lastTickAt=now;tick(Math.min(1,spd/.03));
+      }
+      lastPin=pin;
+    }
+    prevRot=rotation;prevNow=now;
+  }
+
+  function setPhaseUI(){
+    var sp=$("spinBtn"),st=$("stopBtn"),hub=$("hub");
+    if(sp)sp.disabled=(phase!=="idle");
+    if(st)st.disabled=(phase!=="cruise");
+    if(hub){
+      hub.textContent=(phase==="cruise")?"STOP":"돌리기";
+      hub.disabled=(phase==="stopping");
+    }
+  }
+  function clearSpinTimers(){
+    if(spinRaf){cancelAnimationFrame(spinRaf);spinRaf=null;}
+    if(autoStopTimer){clearTimeout(autoStopTimer);autoStopTimer=null;}
+  }
+
+  function startSpin(){
+    if(phase!=="idle")return;
     /* 첫 스핀은 사용자 클릭 안에서 일어나므로 여기서 오디오를 깨운다 */
     audio(); if(actx.state==="suspended")actx.resume();
-    spinning=true;setDisabled(true);
+    phase="cruise";setPhaseUI();
+
+    var reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var accel=reduce?450:ACCEL_MS;
+    var startRot=rotation,t0=performance.now();
+    pinInit(t0);
+    /* 속도 v(u)=VMAX*(1-(1-u)^3) 를 적분한 위치. u=1 에서 정확히 VMAX 로 이어진다. */
+    var accelDist=VMAX*accel*0.75;
+
+    autoStopTimer=setTimeout(function(){ if(phase==="cruise")stopSpin(); },AUTO_STOP_MS);
+
+    (function frame(now){
+      if(phase!=="cruise")return;   /* stopping 이 넘겨받았다 */
+      var el=now-t0;
+      if(el<accel){
+        var u=el/accel;
+        rotation=startRot+VMAX*accel*(u+(Math.pow(1-u,4)-1)/4);
+      }else{
+        rotation=startRot+accelDist+VMAX*(el-accel);
+      }
+      pinTick(now);
+      draw();
+      spinRaf=requestAnimationFrame(frame);
+    })(t0);
+  }
+
+  function stopSpin(){
+    if(phase!=="cruise")return;
+    phase="stopping";setPhaseUI();
+    if(autoStopTimer){clearTimeout(autoStopTimer);autoStopTimer=null;}
+
+    /* 당첨은 STOP 을 누른 이 시점에 정해진다 */
     var n=options.length,seg=TAU/n,win=weightedPick();
     var reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     /* 당첨 칸 가장자리 근처에 아슬아슬하게 멈추도록 */
     var edgeDir=Math.random()<.5?1:-1;
     var off=seg*(0.30+Math.random()*0.13);
     var targetAngle=POINTER-(win*seg+seg/2)+edgeDir*off;
-    var spins=reduce?2:7;
-    var delta=((targetAngle-rotation)%TAU+TAU)%TAU;
-    var finalRot=rotation+spins*TAU+delta,start=rotation;
     /* 2단계: (1) 빠른 감속  (2) 마지막 슬로우 크립 */
+    var dur2=reduce?0:1700;
     var creep=reduce?0:seg*0.55;
-    var mid=finalRot-creep;
-    var dur1=reduce?800:4200, dur2=reduce?0:1600, t0=performance.now();
-    /* 칸 경계가 아니라 촘촘한 가상 핀을 넘을 때마다 틱.
-       실제 회전각으로 구동되므로 빠를 땐 촘촘하고 감속하면 저절로 벌어진다. */
-    var pinSeg=TAU/(n*4), lastPin=Math.floor(rotation/pinSeg);
-    var prevRot=rotation, prevNow=t0, lastTickAt=0;
+    var start=rotation;
+    /* 기준 이동량. 여기에 당첨각 보정을 더한 총량이 실제 1단계 이동거리가 된다. */
+    var travel=VMAX*(reduce?900:4300)/3;
+    var base=start+travel+creep;
+    /* 당첨각에 맞추기 위한 0~1바퀴 보정 */
+    var corr=((targetAngle-base)%TAU+TAU)%TAU;
+    /* 3제곱 ease-out 의 초기 기울기는 3*(이동량)/dur1 이다.
+       보정까지 포함한 총 이동량에 맞춰 dur1 을 늘려야 기울기가 항상 정확히 VMAX 가 되고,
+       STOP 순간 속도가 튀지 않는다. (dur1 약 4300~5500ms) */
+    var total=travel+corr;
+    var dur1=reduce?900:3*total/VMAX;
+    var finalRot=base+corr,mid=finalRot-creep;
+    var t0=performance.now();
+
     (function frame(now){
       var el=now-t0,done=false;
       if(el<=dur1){
@@ -581,21 +674,13 @@
       }else if(dur2>0 && el<=dur1+dur2){
         var p2=(el-dur1)/dur2; rotation=mid+(finalRot-mid)*(1-Math.pow(1-p2,2.4));
       }else{ rotation=finalRot; done=true; }
-      var pin=Math.floor(rotation/pinSeg);
-      if(pin!==lastPin){
-        /* 최고 속도에선 한 프레임에 핀 여러 개를 넘는다.
-           최소 간격을 두지 않으면 틱이 뭉쳐 버즈가 되고 노드도 폭증한다. */
-        if(now-lastTickAt>=16){
-          var dt=now-prevNow;
-          var spd=dt>0?Math.abs(rotation-prevRot)/dt:0; /* rad/ms */
-          lastTickAt=now; tick(Math.min(1,spd/.03));
-        }
-        lastPin=pin;
-      }
-      prevRot=rotation; prevNow=now;
+      pinTick(now);
       draw();
-      if(!done)requestAnimationFrame(frame);
-      else{rotation=((finalRot%TAU)+TAU)%TAU;spinning=false;setDisabled(false);clunk();finishWith(options[win].label);}
+      if(!done){spinRaf=requestAnimationFrame(frame);return;}
+      spinRaf=null;
+      rotation=((finalRot%TAU)+TAU)%TAU;
+      phase="idle";setPhaseUI();
+      clunk();finishWith(options[win].label);
     })(t0);
   }
   /* 원반·윷이 함께 쓰는 결과 처리. 1일 1회 제한도 두 게임이 공유한다. */
@@ -766,12 +851,21 @@
     $("gameSub").textContent=yut?"버튼을 눌러 윷을 던져보세요":"버튼을 눌러 오늘의 행운을 뽑아보세요";
     $("spinBtn").textContent=yut?"던지기":"돌리기";
     var hub=$("hub");if(hub)hub.textContent=yut?"던지기":"돌리기";
-    if(yut){yutResize();drawYut();}else{resize();}
+    var stb=$("stopBtn");if(stb)stb.style.display=yut?"none":"";
+    if(yut){yutResize();drawYut();}else{resize();setPhaseUI();}
   }
-  function play(){ if(activeGame==="yut")throwYut(); else spin(); }
+  function play(){ if(activeGame==="yut")throwYut(); else startSpin(); }
+  /* 가운데 hub 는 원반이 도는 동안 STOP 버튼 역할을 겸한다 */
+  function hubClick(){
+    if(activeGame==="yut"){throwYut();return;}
+    if(phase==="cruise")stopSpin(); else startSpin();
+  }
 
+  /* 윷 전용. 원반은 setPhaseUI() 가 버튼 상태를 관리한다. */
   function setDisabled(d){$("spinBtn").disabled=d;$("hub").disabled=d;}
-  $("spinBtn").onclick=play;$("hub").onclick=play;
+  $("spinBtn").onclick=play;
+  $("hub").onclick=hubClick;
+  $("stopBtn").onclick=stopSpin;
 
   $("soundBtn").onclick=function(){soundOn=!soundOn;var b=$("soundBtn");b.textContent=soundOn?"🔊":"🔇";b.classList.toggle("on",soundOn);};
   var _nb=$("nextBtn");if(_nb)_nb.addEventListener("click",function(){$("modal").classList.remove("show");resetSignup();});
