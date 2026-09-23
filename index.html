@@ -778,10 +778,13 @@
     }catch(e){}
   }
   /* 핀 충돌. count 만큼 나무 클랙이 연쇄하고, 스트라이크면 두 번째 붕괴까지 */
-  function bCrash(count,strike){
+  /* count 는 이제 연쇄 예약용이 아니라 0 — 물리 이벤트가 개별 clack 을 낸다.
+     gain 은 공-핀 첫 충돌 임펄스에 비례(.6~1.2). */
+  function bCrash(count,strike,gain){
     if(!soundOn)return;
     try{
-      audio();var t=actx.currentTime,G=bGroup(0),amp=strike?1.2:1.0,i;
+      audio();var t=actx.currentTime,G=bGroup(0),i;
+      var amp=(typeof gain==="number")?gain:(strike?1.2:1.0);
       /* 첫 착탄 — 날카로운 버스트 */
       var s=noise(),bp=actx.createBiquadFilter(),g=actx.createGain();
       bp.type="bandpass";bp.frequency.value=3000;bp.Q.value=1.2;
@@ -1484,21 +1487,488 @@
   }
 
   /* ══════════════════ 볼링 ══════════════════
-     2D 캔버스에 원근 투영. z=0 은 파울라인(화면 아래), z=1 은 핀덱(위).
-     s(z)=1/(1+2.6z) 하나로 공·핀·레인 마커의 크기와 화면 y 를 모두 만든다. */
+     핀덱은 레인 좌표계(탑다운)에서 실시간 물리로 돌리고, 화면은 그 결과를
+     원근 투영해 그린다. 추첨 결과와 어긋나지 않도록 물리를 미리 돌려
+     쓰러진 개수가 목표와 같은 초기 조건을 찾고, 그 궤적을 그대로 재생한다. */
+  var bCorrCount=0,bRunCount=0;
   var bcv=$("bowl"),bctx=bcv?bcv.getContext("2d"):null;
-  var bsize=0,bZoom=1,bowling=false;
+  var bsize=0,bowling=false;
   var BVAN=.10,BNEAR=.86,BHALF=.42,BBALL=.072,BPINR=.052,BPINH=.155;
   function bS(z){ return 1/(1+2.6*z); }
   function bY(z,d){ return d*(BVAN+(BNEAR-BVAN)*bS(z)); }
   function bX(xl,z,d){ return d/2+xl*d*BHALF*bS(z); }
-  /* 10핀 정삼각. 인덱스 0=1번핀 … 9=10번핀 (뒤 열 왼쪽부터) */
-  var BPINS=(function(){
-    var out=[],r,i,pitch=.17;
-    for(r=0;r<4;r++)for(i=0;i<=r;i++)
-      out.push({xl:(i-r/2)*pitch, z:.90+r*(.10/3)});
-    return out;
-  })();
+
+  /* ── 월드(레인 좌표) ──
+     x 는 레인 가로 -0.5~0.5, y 는 깊이(0=1번핀, + 는 핏 쪽) */
+  var BPS=.29, BRW=BPS*Math.sqrt(3)/2;
+  var BR_PIN=.058, BR_BALL=.104, BPIN_LEN=.38;
+  var BM_PIN=1.5, BM_BALL=6.0;
+  var BPIT=1.05, BWALL=.5, BEDGE=.49, BTIP=25*Math.PI/180;
+  /* 핀덱이 캔버스 폭의 약 70% 를 차지하는 배율. 누워 미끄러진 핀까지 화면 안에 든다. */
+  var BCAMZ_MAX=2.25, BCAMZ_MAX_1=BCAMZ_MAX-1;
+  var BWPIN=[
+    {x:0,y:0},
+    {x:-BPS/2,y:BRW},{x:BPS/2,y:BRW},
+    {x:-BPS,y:2*BRW},{x:0,y:2*BRW},{x:BPS,y:2*BRW},
+    {x:-1.5*BPS,y:3*BRW},{x:-BPS/2,y:3*BRW},{x:BPS/2,y:3*BRW},{x:1.5*BPS,y:3*BRW}
+  ];
+  /* 월드 → 레인 z. 1번핀이 z=0.93, 뒷줄이 z=1.0 */
+  var BZ0=.93, BZK=.07/(3*BRW);
+  function bZof(y){ return BZ0+y*BZK; }
+
+  function bRng(seed){
+    var s=(seed>>>0)||1;
+    return function(){ s=(s*1664525+1013904223)>>>0; return s/4294967296; };
+  }
+  /* 누운 핀은 길이 0.38 캡슐 → 두 점 원으로 근사 */
+  function bPts(p,out){
+    if(p.st<2){ out[0]=p.x;out[1]=p.y;return 1; }
+    var h=BPIN_LEN*.25,c=Math.cos(p.phi),s=Math.sin(p.phi);
+    out[0]=p.x-c*h;out[1]=p.y-s*h;out[2]=p.x+c*h;out[3]=p.y+s*h;return 2;
+  }
+  /* 원-원 임펄스. 반환값은 법선 임펄스 크기(사운드·넘어짐 세기로 쓴다) */
+  function bHit(a,b,ma,mb,rest,fric,rsum,ax,ay,bx,by){
+    var dx=bx-ax,dy=by-ay,d2=dx*dx+dy*dy;
+    if(d2>=rsum*rsum)return 0;            /* 제곱으로 먼저 걸러 sqrt 를 아낀다 */
+    var dist=Math.sqrt(d2);
+    if(dist<1e-9){dx=1;dy=0;dist=1e-9;}
+    var nx=dx/dist,ny=dy/dist;
+    /* 파고든 만큼 밀어낸다 */
+    var pen=(rsum-dist),inv=1/ma+1/mb;
+    a.x-=nx*pen*(1/ma)/inv; a.y-=ny*pen*(1/ma)/inv;
+    b.x+=nx*pen*(1/mb)/inv; b.y+=ny*pen*(1/mb)/inv;
+    var rvx=b.vx-a.vx,rvy=b.vy-a.vy,vn=rvx*nx+rvy*ny;
+    if(vn>0)return 0;
+    var j=-(1+rest)*vn/inv;
+    a.vx-=j*nx/ma; a.vy-=j*ny/ma;
+    b.vx+=j*nx/mb; b.vy+=j*ny/mb;
+    var tx=-ny,ty=nx,vt=rvx*tx+rvy*ty,jt=-vt*fric/inv;
+    a.vx-=jt*tx/ma; a.vy-=jt*ty/ma;
+    b.vx+=jt*tx/mb; b.vy+=jt*ty/mb;
+    return Math.abs(j);
+  }
+  /* 핀에 임펄스가 들어왔을 때 — 기울기 시작 + 밑동 미끄러짐 */
+  function bImpulse(p,j,dirx,diry,rnd){
+    if(p.gone>=1)return;
+    var mag=Math.min(3,j);
+    p.phi=Math.atan2(diry,dirx);
+    p.om+=mag*5.2*(.78+rnd()*.52);
+    if(p.st===0&&p.om>0)p.st=1;
+    if(!p.hopUp&&mag>.75&&rnd()<.3){ p.hopUp=1; p.hv=1.6+mag*.25; }
+  }
+
+  function bStep(ball,pins,dt,ev,t,rnd){
+    var EV=ev;
+    var i,k,pa=[0,0,0,0],pb=[0,0,0,0],na,nb,ai,bi,j;
+    /* 공 */
+    if(ball.gone<1){
+      ball.x+=ball.vx*dt; ball.y+=ball.vy*dt;
+      ball.vx*=(1-.25*dt); ball.vy*=(1-.18*dt);
+      /* 레인 가장자리까지는 갈 수 있어야 코너핀만 살짝 스치는 결과가 나온다 */
+      if(ball.x<-BEDGE){ball.x=-BEDGE;ball.vx=-ball.vx*.35;}
+      if(ball.x>BEDGE){ball.x=BEDGE;ball.vx=-ball.vx*.35;}
+      if(ball.y>BPIT+.2){ ball.gone=1; if(EV)EV.push({t:t,k:"pit",x:ball.x,j:1}); }
+    }
+    /* 핀 적분 */
+    for(i=0;i<10;i++){
+      var p=pins[i];
+      if(p.gone>=1)continue;
+      p.x+=p.vx*dt; p.y+=p.vy*dt;
+      var damp=p.st===2?4.5:1.6;
+      p.vx*=(1-damp*dt); p.vy*=(1-damp*dt);
+      if(Math.abs(p.vx)>.02&&!p.slid){p.slid=1;if(EV)EV.push({t:t,k:"slide",x:p.x,j:.5});}
+      /* 기울기 */
+      if(p.st<2){
+        if(p.th>=BTIP){ p.st=1; p.om+=9.0*Math.sin(p.th)*dt; }
+        else if(p.om>0){ p.om-=3.2*dt; if(p.om<0)p.om=0; }
+        else if(p.th>0){ p.th-=2.2*dt; if(p.th<0)p.th=0; }
+        p.th+=p.om*dt;
+        if(p.th<0){p.th=0;p.om=0;}
+        if(p.th>=Math.PI/2){ p.th=Math.PI/2; p.om=0; p.st=2; }
+      }
+      /* 튀어오름 */
+      if(p.hopUp&&p.st>0){
+        p.hv-=7.5*dt; p.hop+=p.hv*dt;
+        if(p.hop<=0){p.hop=0;p.hv=0;p.hopUp=0;}
+      }
+      /* 벽 */
+      if(p.x<-BWALL+BR_PIN){p.x=-BWALL+BR_PIN;p.vx=-p.vx*.35;}
+      if(p.x>BWALL-BR_PIN){p.x=BWALL-BR_PIN;p.vx=-p.vx*.35;}
+      if(p.y>BPIT){ p.gone=Math.min(1,p.gone+dt*2.2); if(p.gone>=1)if(EV)EV.push({t:t,k:"pitpin",x:p.x,j:.5}); }
+    }
+    /* 공 ↔ 핀 */
+    if(ball.gone<1)for(i=0;i<10;i++){
+      var q=pins[i];
+      if(q.gone>=1)continue;
+      var qdx=q.x-ball.x,qdy=q.y-ball.y;
+      if(qdx*qdx+qdy*qdy>.073)continue;
+      na=bPts(q,pa);
+      for(ai=0;ai<na;ai++){
+        j=bHit(ball,q,BM_BALL,BM_PIN,.28,.15,BR_BALL+BR_PIN,ball.x,ball.y,pa[ai*2],pa[ai*2+1]);
+        if(j>0){
+          bImpulse(q,j/BM_PIN,q.x-ball.x,q.y-ball.y,rnd);
+          if(EV)EV.push({t:t,k:ball.hit?"pin":"first",x:q.x,j:j});
+          ball.hit=1;
+        }
+      }
+    }
+    /* 핀 ↔ 핀 — 둘 다 가만히 서 있으면 검사할 필요가 없다 */
+    for(i=0;i<10;i++){
+      var A=pins[i]; if(A.gone>=1)continue;
+      var Aa=(A.st!==0||A.th>0||A.vx*A.vx+A.vy*A.vy>1e-6);
+      na=bPts(A,pa);
+      for(k=i+1;k<10;k++){
+        var B=pins[k]; if(B.gone>=1)continue;
+        if(!Aa&&B.st===0&&B.th===0&&B.vx*B.vx+B.vy*B.vy<=1e-6)continue;
+        var ddx=A.x-B.x,ddy=A.y-B.y;
+        if(ddx*ddx+ddy*ddy>.1)continue;    /* 0.316 밖은 어떤 자세로도 안 닿는다 */
+        nb=bPts(B,pb);
+        for(ai=0;ai<na;ai++)for(bi=0;bi<nb;bi++){
+          j=bHit(A,B,BM_PIN,BM_PIN,.45,.15,BR_PIN*2,pa[ai*2],pa[ai*2+1],pb[bi*2],pb[bi*2+1]);
+          if(j>0){
+            bImpulse(A,j/BM_PIN,A.x-B.x,A.y-B.y,rnd);
+            bImpulse(B,j/BM_PIN,B.x-A.x,B.y-A.y,rnd);
+            if(EV)EV.push({t:t,k:"pin",x:(A.x+B.x)/2,j:j});
+          }
+        }
+      }
+    }
+  }
+  function bSettled(ball,pins){
+    if(ball.gone<1&&ball.y<BPIT)return false;
+    for(var i=0;i<10;i++){
+      var p=pins[i];
+      if(p.gone>=1)continue;
+      if(p.vx*p.vx+p.vy*p.vy>4e-4)return false;
+      if(Math.abs(p.om)>.05)return false;
+      if(p.st===1)return false;
+      if(p.hopUp)return false;
+    }
+    return true;
+  }
+  function bDownCount(pins){
+    var n=0;
+    for(var i=0;i<10;i++)if(pins[i].st===2||pins[i].gone>=1)n++;
+    return n;
+  }
+  /* 목표 개수에 맞추는 막판 미세 보정 (B3).
+     넘어뜨릴 핀은 이웃 반대쪽(바깥)으로 눕혀 새 연쇄가 생기지 않게 한다. */
+  function bCorrect(pins,target,rnd){
+    var i,will=[],stand=[];
+    for(i=0;i<10;i++){
+      var p=pins[i];
+      if(p.gone>=1||p.st===2||(p.st===1&&p.th>=BTIP))will.push(i);
+      else stand.push(i);
+    }
+    var n=will.length,fixed=0;
+    if(n<target){
+      stand.sort(function(a,b){return pins[b].th-pins[a].th;});
+      for(i=0;i<stand.length&&n<target;i++){
+        var q=pins[stand[i]];
+        /* 서 있는 이웃들의 반대 방향 — 연쇄를 만들지 않는 쪽으로 눕힌다 */
+        var ax=0,ay=0,k;
+        for(k=0;k<10;k++){
+          if(k===stand[i]||pins[k].gone>=1||pins[k].st===2)continue;
+          var ddx=pins[k].x-q.x,ddy=pins[k].y-q.y,dd=ddx*ddx+ddy*ddy;
+          if(dd>1e-6&&dd<.25){ax-=ddx/dd;ay-=ddy/dd;}
+        }
+        if(ax===0&&ay===0){ax=q.x>=0?1:-1;ay=.2;}
+        q.phi=Math.atan2(ay,ax);
+        q.th=BTIP+.02; q.om=2.6; q.st=1; q.vx=0; q.vy=0; q.hopUp=0;
+        n++;fixed++;
+      }
+    }else if(n>target){
+      will.sort(function(a,b){return pins[a].th-pins[b].th;});
+      for(i=0;i<will.length&&n>target;i++){
+        var r=pins[will[i]];
+        if(r.gone>=1||r.st===2)continue;
+        r.th=BTIP*.5; r.om=-.5; r.st=0; r.vx=0; r.vy=0; r.hopUp=0; r.hop=0;
+        n--;fixed++;
+      }
+    }
+    return fixed;
+  }
+  var BSIM_T=2.4, BSIM_DT=1/240, BCORR_T=1.2, BCORR_T2=1.75;
+  function bSimRun(p,record,target){
+    var rnd=bRng(p.seed),i;
+    var pins=[];
+    for(i=0;i<10;i++)pins.push({x:BWPIN[i].x,y:BWPIN[i].y,vx:0,vy:0,
+      th:0,phi:0,om:0,st:0,hop:0,hv:0,hopUp:0,gone:0,slid:0});
+    var ball={x:p.x,y:-.6,vx:p.spin*.55,vy:p.speed,gone:0,hit:0};
+    var ev=record?[]:null,traj=record?[]:null,fixed=0,c1=false,c2=false;
+    var steps=Math.round(BSIM_T/BSIM_DT);
+    for(var s=0;s<steps;s++){
+      var t=s*BSIM_DT;
+      if(target!=null&&!c1&&t>=BCORR_T){c1=true;fixed+=bCorrect(pins,target,rnd);}
+      /* 1차 보정이 새 연쇄를 만들었을 수 있으니 한 번 더 맞춘다 */
+      if(target!=null&&!c2&&t>=BCORR_T2){c2=true;fixed+=bCorrect(pins,target,rnd);}
+      /* 전부 멎었고 공도 지나갔으면 더 돌릴 필요가 없다 */
+      if(!record&&t>.9&&bSettled(ball,pins))break;
+      bStep(ball,pins,BSIM_DT,ev,t,rnd);
+      if(record){
+        var f=[ball.x,ball.y,ball.gone];
+        for(i=0;i<10;i++){var q=pins[i];f.push(q.x,q.y,q.th,q.phi,q.hop,q.gone,q.st);}
+        traj.push(f);
+      }
+    }
+    return {down:bDownCount(pins),ev:ev,traj:traj,fixed:fixed};
+  }
+  /* 녹화된 궤적 자체를 손봐 최종 개수를 목표에 정확히 맞춘다.
+     bCorrect 는 핀이 이미 핏에 빠진 뒤면 되돌릴 수 없어서, 마지막 보증은 여기서 한다. */
+  function bTrajDown(fr){
+    var n=0;for(var i=0;i<10;i++){var o=3+i*7;if(fr[o+6]===2||fr[o+5]>=1)n++;}return n;
+  }
+  function bFixTraj(traj,N){
+    var F=traj.length,i,f,o,k,fixed=0;
+    var fallAt=[];
+    for(i=0;i<10;i++){
+      var at=-1;
+      for(f=0;f<F;f++){o=3+i*7;if(traj[f][o+6]===2||traj[f][o+5]>=1){at=f;break;}}
+      fallAt.push(at);
+    }
+    var down=0;for(i=0;i<10;i++)if(fallAt[i]>=0)down++;
+    if(down>N){
+      var ord=[];for(i=0;i<10;i++)if(fallAt[i]>=0)ord.push(i);
+      ord.sort(function(a,b){return fallAt[b]-fallAt[a];});   /* 늦게 넘어진 것부터 */
+      for(k=0;k<down-N;k++){
+        var pi=ord[k],s0=Math.max(0,fallAt[pi]-1);
+        o=3+pi*7;
+        var bx=traj[s0][o],by=traj[s0][o+1];
+        for(f=0;f<F;f++){
+          var fr=traj[f];
+          fr[o]=bx;fr[o+1]=by;fr[o+4]=0;fr[o+5]=0;fr[o+6]=0;
+          if(f>=s0){
+            var e=f-s0;
+            var w=BTIP*.6*Math.cos(e*.30)*Math.exp(-e*.014);  /* 맞고 흔들리다 선다 */
+            fr[o+2]=w>0?w:0;
+          }
+        }
+        fixed++;
+      }
+    }else if(down<N){
+      var stand=[];for(i=0;i<10;i++)if(fallAt[i]<0)stand.push(i);
+      var bxe=traj[Math.min(F-1,Math.floor(F*.3))][0];
+      stand.sort(function(a,b){
+        return Math.abs(traj[0][3+a*7]-bxe)-Math.abs(traj[0][3+b*7]-bxe);});
+      for(k=0;k<N-down&&k<stand.length;k++){
+        var pj=stand[k];o=3+pj*7;
+        var s1=Math.floor(F*.26)+k*12,du=Math.max(8,Math.floor(F*.20));
+        var ph=Math.atan2(.35,traj[0][o]>=0?1:-1);
+        for(f=0;f<F;f++){
+          var fr2=traj[f];
+          if(f<s1){fr2[o+2]=0;fr2[o+6]=0;continue;}
+          var q=Math.min(1,(f-s1)/du);
+          fr2[o+2]=(Math.PI/2)*Math.pow(q,1.6);
+          fr2[o+3]=ph;fr2[o+6]=q>=1?2:1;
+        }
+        fixed++;
+      }
+    }
+    return fixed;
+  }
+  /* 목표 N 이 나오는 초기 조건을 찾는다 (B2).
+     레인 바깥으로 갈수록 적게 쓰러지는 단조성을 이용해 x 를 이분 탐색한다. */
+  var BSOLVE_MAX=45;
+  function bSolve(N){
+    var best=null,bestDiff=99,tries=0,r,p,d;
+    if(N>=10){
+      for(;tries<BSOLVE_MAX;){
+        p={x:.05+Math.random()*.09,speed:5.8+Math.random()*1.7,
+           spin:(Math.random()*2-1),seed:(Math.random()*1e9)|0};
+        r=bSimRun(p,false,null);tries++;
+        if(r.down===10)return{p:p,tries:tries,corrected:0};
+        if(10-r.down<bestDiff){bestDiff=10-r.down;best=p;}
+      }
+      return {p:best,tries:tries,corrected:1};
+    }
+    var sgn=Math.random()<.5?-1:1,lo=.02,hi=.49;   /* lo=안쪽(많이), hi=바깥(적게) */
+    var sp=5.5+Math.random()*2,spin=Math.random()*2-1,seed=(Math.random()*1e9)|0;
+    while(tries<BSOLVE_MAX){
+      var x=(lo+hi)/2;
+      p={x:sgn*x,speed:sp,spin:spin,seed:seed};
+      r=bSimRun(p,false,null);tries++;
+      d=Math.abs(r.down-N);
+      if(d===0)return{p:p,tries:tries,corrected:0};
+      if(d<bestDiff){bestDiff=d;best=p;}
+      if(r.down>N)lo=x; else hi=x;                 /* 많이 쓰러졌으면 더 바깥으로 */
+      if(hi-lo<.006){                              /* 구간이 좁아지면 조건을 새로 뽑는다 */
+        lo=.02;hi=.49;sgn=Math.random()<.5?-1:1;
+        sp=5.5+Math.random()*2;spin=Math.random()*2-1;seed=(Math.random()*1e9)|0;
+      }
+    }
+    return {p:best,tries:tries,corrected:1};
+  }
+
+
+  /* ── 재생 상태 ── */
+  var bPlay=null,bCamPan=0,bCamZ=1;
+  function bowlResize(){
+    if(!bcv||!bctx)return;
+    var st=$("stageBowl");if(!st)return;
+    var d=Math.min(st.clientWidth,st.clientHeight);
+    if(!d)return;
+    var dpr=window.devicePixelRatio||1;
+    bcv.width=Math.round(d*dpr);bcv.height=Math.round(d*dpr);
+    bctx.setTransform(dpr,0,0,dpr,0,0);
+    bsize=d;
+    if(!bowling)bReset();
+  }
+  function bReset(){
+    bCamPan=0;bCamZ=1;
+    bPlay={ball:{x:0,y:-1.4,gone:0},pins:[],gutter:0,wob:0};
+    for(var i=0;i<10;i++)bPlay.pins.push({x:BWPIN[i].x,y:BWPIN[i].y,th:0,phi:0,hop:0,gone:0,st:0});
+  }
+  bReset();
+
+  function bDrawLane(d){
+    var i;
+    var lg=bctx.createLinearGradient(0,bY(1,d),0,bY(0,d));
+    lg.addColorStop(0,"#caa06a");lg.addColorStop(.35,"#b98c52");lg.addColorStop(1,"#7d5c33");
+    bctx.fillStyle=lg;
+    bctx.beginPath();
+    bctx.moveTo(bX(-1,0,d),bY(0,d));bctx.lineTo(bX(1,0,d),bY(0,d));
+    bctx.lineTo(bX(1,1.12,d),bY(1.12,d));bctx.lineTo(bX(-1,1.12,d),bY(1.12,d));
+    bctx.closePath();bctx.fill();
+    bctx.lineWidth=1;
+    for(i=1;i<39;i++){
+      var xl=-1+2*i/39;
+      bctx.strokeStyle=i%5===0?"rgba(72,48,22,.34)":"rgba(92,64,30,.16)";
+      bctx.beginPath();
+      bctx.moveTo(bX(xl,0,d),bY(0,d));bctx.lineTo(bX(xl,1.12,d),bY(1.12,d));
+      bctx.stroke();
+    }
+    var og=bctx.createLinearGradient(0,bY(.6,d),0,bY(.05,d));
+    og.addColorStop(0,"rgba(255,245,215,.16)");og.addColorStop(1,"rgba(255,245,215,0)");
+    bctx.fillStyle=og;
+    bctx.beginPath();
+    bctx.moveTo(bX(-.92,.05,d),bY(.05,d));bctx.lineTo(bX(.92,.05,d),bY(.05,d));
+    bctx.lineTo(bX(.92,.6,d),bY(.6,d));bctx.lineTo(bX(-.92,.6,d),bY(.6,d));
+    bctx.closePath();bctx.fill();
+    for(var sgn=-1;sgn<=1;sgn+=2){
+      bctx.fillStyle="#2a1d0e";
+      bctx.beginPath();
+      bctx.moveTo(bX(sgn,0,d),bY(0,d));bctx.lineTo(bX(sgn*1.16,0,d),bY(0,d));
+      bctx.lineTo(bX(sgn*1.16,1.12,d),bY(1.12,d));bctx.lineTo(bX(sgn,1.12,d),bY(1.12,d));
+      bctx.closePath();bctx.fill();
+      bctx.strokeStyle="rgba(205,162,76,.35)";bctx.lineWidth=Math.max(1,d*.0035);
+      bctx.beginPath();
+      bctx.moveTo(bX(sgn*1.02,0,d),bY(0,d));bctx.lineTo(bX(sgn*1.02,1.12,d),bY(1.12,d));
+      bctx.stroke();
+    }
+    bctx.strokeStyle="rgba(214,31,58,.75)";bctx.lineWidth=Math.max(2,d*.006);
+    bctx.beginPath();bctx.moveTo(bX(-1,0,d),bY(0,d));bctx.lineTo(bX(1,0,d),bY(0,d));bctx.stroke();
+    for(i=0;i<7;i++){
+      bctx.fillStyle="rgba(60,40,16,.5)";
+      bctx.beginPath();bctx.arc(bX(-.72+i*.24,.02,d),bY(.02,d),d*.006,0,TAU);bctx.fill();
+    }
+    for(i=0;i<7;i++){
+      var tx=-.54+i*.18,tz=.30+Math.abs(i-3)*.018,s=bS(tz),wid=d*.016*s;
+      bctx.fillStyle="rgba(74,48,18,.62)";
+      bctx.beginPath();
+      bctx.moveTo(bX(tx,tz+.04,d),bY(tz+.04,d));
+      bctx.lineTo(bX(tx,tz,d)-wid,bY(tz,d));
+      bctx.lineTo(bX(tx,tz,d)+wid,bY(tz,d));
+      bctx.closePath();bctx.fill();
+    }
+    bctx.fillStyle="#120c05";
+    bctx.beginPath();
+    bctx.moveTo(bX(-1.16,1.12,d),bY(1.12,d));bctx.lineTo(bX(1.16,1.12,d),bY(1.12,d));
+    bctx.lineTo(bX(1.16,1.7,d),bY(1.7,d));bctx.lineTo(bX(-1.16,1.7,d),bY(1.7,d));
+    bctx.closePath();bctx.fill();
+    var pg=bctx.createRadialGradient(d/2,bY(.965,d),d*.01,d/2,bY(.965,d),d*.2);
+    pg.addColorStop(0,"rgba(255,246,214,.24)");pg.addColorStop(1,"rgba(255,246,214,0)");
+    bctx.fillStyle=pg;bctx.fillRect(0,0,d,d);
+  }
+  /* 서 있는 핀 / 기우는 핀 / 누운 핀 / 튀는 핀 */
+  function bDrawPin(d,p){
+    if(p.gone>=1)return;
+    var z=bZof(p.y),s=bS(z),xl=p.x*2;
+    var cx=bX(xl,z,d),cy=bY(z,d);
+    var w=d*BPINR*s,h=d*BPINH*s;
+    var hop=p.hop||0,hs=1+.5*hop;
+    bctx.save();
+    bctx.globalAlpha=Math.max(0,1-p.gone);
+    /* 그림자 — 튈 땐 본체와 분리된다 */
+    bctx.save();
+    bctx.globalAlpha*=hop>0?.28:.4;
+    bctx.fillStyle="#000";
+    bctx.beginPath();bctx.ellipse(cx,cy,w*.95,w*.36,0,0,TAU);bctx.fill();
+    bctx.restore();
+    bctx.translate(cx,cy-d*hop*s*.5);
+    bctx.scale(hs,hs);
+    if(p.th>0)bctx.rotate(p.th*Math.cos(p.phi||0));
+    /* 누울수록 세로로 짧아지고 옆으로 길어진다 */
+    var lie=Math.sin(p.th||0),up=Math.cos(p.th||0);
+    var hh=h*(up*.85+.15),ww=w*(1+lie*1.5);
+    bctx.translate(0,-hh*.5);
+    var g=bctx.createLinearGradient(-ww,0,ww,0);
+    g.addColorStop(0,"#d9d2c6");g.addColorStop(.42,"#ffffff");g.addColorStop(1,"#c9c1b3");
+    bctx.fillStyle=g;
+    bctx.beginPath();
+    bctx.moveTo(-ww*.62,hh*.5);
+    bctx.quadraticCurveTo(-ww*.95,hh*.05,-ww*.42,-hh*.12);
+    bctx.quadraticCurveTo(-ww*.30,-hh*.30,-ww*.34,-hh*.42);
+    bctx.quadraticCurveTo(0,-hh*.60,ww*.34,-hh*.42);
+    bctx.quadraticCurveTo(ww*.30,-hh*.30,ww*.42,-hh*.12);
+    bctx.quadraticCurveTo(ww*.95,hh*.05,ww*.62,hh*.5);
+    bctx.closePath();bctx.fill();
+    bctx.strokeStyle="rgba(60,50,36,.35)";bctx.lineWidth=Math.max(.6,ww*.09);bctx.stroke();
+    bctx.fillStyle="#d61f3a";
+    bctx.fillRect(-ww*.56,-hh*.06,ww*1.12,hh*.075);
+    bctx.fillRect(-ww*.50,hh*.09,ww*1.00,hh*.06);
+    bctx.restore();
+  }
+  function bDrawBall(d,b){
+    if(!b||b.gone>=1)return;
+    var z=bZof(b.y);
+    if(z>1.05){
+      var f=Math.min(1,(z-1.05)/.14);
+      bctx.globalAlpha=Math.max(0,1-f);
+    }
+    var s=bS(z),r=d*BBALL*s*(b.drop||1);
+    var cx=bX(b.x*2,z,d),cy=bY(z,d)-r*.55;
+    bctx.save();bctx.globalAlpha*=.42;bctx.fillStyle="#000";
+    bctx.beginPath();bctx.ellipse(cx,bY(z,d),r*1.02,r*.34,0,0,TAU);bctx.fill();bctx.restore();
+    var g=bctx.createRadialGradient(cx-r*.35,cy-r*.42,r*.12,cx,cy,r);
+    g.addColorStop(0,"#5b3f86");g.addColorStop(.45,"#2c2560");g.addColorStop(1,"#120e2c");
+    bctx.fillStyle=g;bctx.beginPath();bctx.arc(cx,cy,r,0,TAU);bctx.fill();
+    var i,roll=b.roll||0;
+    for(i=0;i<3;i++){
+      var a=roll+i*(TAU/3),tilt=Math.cos(b.axis||0);
+      var ox=Math.cos(a)*r*.42,oy=Math.sin(a)*r*.42*tilt-r*.12;
+      var dep=Math.max(.12,(Math.sin(a)*.5+.5));
+      bctx.fillStyle="rgba(8,6,18,"+(.35+.5*dep).toFixed(2)+")";
+      bctx.beginPath();bctx.ellipse(cx+ox,cy+oy,r*.14,r*.115*Math.max(.35,dep),a,0,TAU);bctx.fill();
+    }
+    var sg=bctx.createRadialGradient(cx-r*.38,cy-r*.45,0,cx-r*.38,cy-r*.45,r*.55);
+    sg.addColorStop(0,"rgba(255,255,255,.55)");sg.addColorStop(1,"rgba(255,255,255,0)");
+    bctx.fillStyle=sg;bctx.beginPath();bctx.arc(cx,cy,r,0,TAU);bctx.fill();
+    bctx.globalAlpha=1;
+  }
+  function drawBowl(){
+    if(!bctx||!bsize||!bPlay)return;
+    var d=bsize,i;
+    bctx.clearRect(0,0,d,d);
+    bctx.save();
+    /* 카메라 — 핀덱 중심을 화면 중앙으로 끌어오며 확대 */
+    if(bCamPan>0||bCamZ!==1){
+      var pcy=bY(.965,d),cy0=d*.52;
+      bctx.translate(d/2,cy0);
+      bctx.scale(bCamZ,bCamZ);
+      bctx.translate(-d/2,-(pcy*bCamPan+cy0*(1-bCamPan)));
+    }
+    bDrawLane(d);
+    /* 깊이 정렬 — 먼 것(z 큰 것)부터 */
+    var items=[];
+    for(i=0;i<10;i++){var p=bPlay.pins[i];if(p.gone<1)items.push({z:bZof(p.y),p:p,b:0});}
+    if(bPlay.ball.gone<1)items.push({z:bZof(bPlay.ball.y),p:bPlay.ball,b:1});
+    items.sort(function(a,b){return b.z-a.z;});
+    for(i=0;i<items.length;i++){
+      if(items[i].b)bDrawBall(d,items[i].p);
+      else bDrawPin(d,items[i].p);
+    }
+    bctx.restore();
+  }
   /* 구간의 pins 문자열("0" | "1-3" | "10")에서 실제 쓰러질 핀 수를 뽑는다 */
   function bPinCount(pins){
     var m=String(pins).split("-");
@@ -1513,196 +1983,35 @@
     for(i=0;i<bowlOpts.length;i++){r-=Math.max(0,bowlOpts[i].weight);if(r<=0)return i;}
     return bowlOpts.length-1;
   }
-  /* 공 진입점에서 가까운 핀부터 n 개. 연쇄가 그럴듯해 보이도록 거리순 그대로 쓴다. */
-  function bKnockSet(entryX,n){
-    if(n<=0)return [];
-    if(n>=10)return [0,1,2,3,4,5,6,7,8,9];
-    var idx=[0,1,2,3,4,5,6,7,8,9].map(function(i){
-      var p=BPINS[i];
-      return {i:i,d:Math.hypot(p.xl-entryX,(p.z-.90)*1.6)};
-    });
-    idx.sort(function(a,b){return a.d-b.d||a.i-b.i;});
-    return idx.slice(0,n).map(function(o){return o.i;}).sort(function(a,b){return a-b;});
-  }
-  /* 결과 등급별 공 진입선. 포켓(1-3번 사이)은 약 +0.045 */
-  function bEntryFor(tier){
-    if(tier===4)return .045;                              /* 스트라이크 — 포켓 정중앙 */
-    if(tier===3)return .045+(Math.random()<.5?-1:1)*(.05+Math.random()*.03);
-    if(tier===2)return Math.random()<.5?0:.085;           /* 1번핀 정면 또는 3번핀 */
-    if(tier===1)return (Math.random()<.5?-1:1)*(.26+Math.random()*.06);
-    return (Math.random()<.5?-1:1)*1.25;                  /* 거터 */
-  }
-  function bowlResize(){
-    if(!bcv||!bctx)return;
-    var st=$("stageBowl");if(!st)return;
-    var d=Math.min(st.clientWidth,st.clientHeight);
-    if(!d)return;
-    var dpr=window.devicePixelRatio||1;
-    bcv.width=Math.round(d*dpr);bcv.height=Math.round(d*dpr);
-    bctx.setTransform(dpr,0,0,dpr,0,0);
-    bsize=d;
-    if(!bowling)bReset();
-  }
-  var bBall=null,bPinState=null;
-  function bReset(){
-    bZoom=1;
-    bBall={xl:0,z:0,roll:0,axis:0,drop:1,gone:false};
-    bPinState=[];
-    for(var i=0;i<10;i++)bPinState.push({
-      fall:0,dir:0,hop:0,slide:0,gone:0,wob:0,at:-1});
-  }
-  bReset();
-  function bDrawLane(d){
-    var i,z;
-    /* 어프로치는 어둡고 핀덱은 스포트라이트처럼 밝다 */
-    var lg=bctx.createLinearGradient(0,bY(1,d),0,bY(0,d));
-    lg.addColorStop(0,"#caa06a");lg.addColorStop(.35,"#b98c52");lg.addColorStop(1,"#7d5c33");
-    bctx.fillStyle=lg;
-    bctx.beginPath();
-    bctx.moveTo(bX(-1,0,d),bY(0,d));bctx.lineTo(bX(1,0,d),bY(0,d));
-    bctx.lineTo(bX(1,1.06,d),bY(1.06,d));bctx.lineTo(bX(-1,1.06,d),bY(1.06,d));
-    bctx.closePath();bctx.fill();
-    /* 널빤지 결 39개 */
-    bctx.lineWidth=1;
-    for(i=1;i<39;i++){
-      var xl=-1+2*i/39;
-      bctx.strokeStyle=i%5===0?"rgba(72,48,22,.34)":"rgba(92,64,30,.16)";
-      bctx.beginPath();
-      bctx.moveTo(bX(xl,0,d),bY(0,d));bctx.lineTo(bX(xl,1.06,d),bY(1.06,d));
-      bctx.stroke();
+  /* 충돌이 몰릴 때 소리를 솎는다 (D3).
+     노드 예산 60개를 지키려면 프레임당 개수만으로는 부족해서, 시간 게이트로 묶는다.
+     한 번에 가장 센 충돌 하나만 내보내고 40ms 안에는 다시 내지 않는다. */
+  var bLastClack=-9, bLastPit=-9, bLastRat=-9;
+  function bFireEvents(list){
+    if(!actx)return;
+    var t=actx.currentTime,i,big=null,pit=0,rat=0;
+    for(i=0;i<list.length;i++){
+      var e=list[i];
+      if(e.k==="pit"||e.k==="pitpin"){ pit=Math.max(pit,e.k==="pit"?1:.5); continue; }
+      if(e.k==="slide"){ rat=1; continue; }
+      if(!big||e.j>big.j)big=e;
     }
-    /* 오일 구간 광택 */
-    var og=bctx.createLinearGradient(0,bY(.6,d),0,bY(.05,d));
-    og.addColorStop(0,"rgba(255,245,215,.16)");og.addColorStop(1,"rgba(255,245,215,0)");
-    bctx.fillStyle=og;
-    bctx.beginPath();
-    bctx.moveTo(bX(-.92,.05,d),bY(.05,d));bctx.lineTo(bX(.92,.05,d),bY(.05,d));
-    bctx.lineTo(bX(.92,.6,d),bY(.6,d));bctx.lineTo(bX(-.92,.6,d),bY(.6,d));
-    bctx.closePath();bctx.fill();
-    /* 양쪽 거터 */
-    for(var sgn=-1;sgn<=1;sgn+=2){
-      bctx.fillStyle="#2a1d0e";
-      bctx.beginPath();
-      bctx.moveTo(bX(sgn,0,d),bY(0,d));bctx.lineTo(bX(sgn*1.16,0,d),bY(0,d));
-      bctx.lineTo(bX(sgn*1.16,1.06,d),bY(1.06,d));bctx.lineTo(bX(sgn,1.06,d),bY(1.06,d));
-      bctx.closePath();bctx.fill();
-      bctx.strokeStyle="rgba(205,162,76,.35)";bctx.lineWidth=Math.max(1,d*.0035);
-      bctx.beginPath();
-      bctx.moveTo(bX(sgn*1.02,0,d),bY(0,d));bctx.lineTo(bX(sgn*1.02,1.06,d),bY(1.06,d));
-      bctx.stroke();
+    if(big){
+      if(t-bLastClack>=.04){
+        bLastClack=t;
+        if(big.k==="first")bCrash(0,big.j>1.6,Math.max(.6,Math.min(1.2,big.j*.5)));
+        else clack(Math.max(.3,Math.min(.9,big.j*.45)),big.x*2);
+      }else if(big.k==="first"){
+        /* 첫 착탄만은 게이트를 무시한다 — 가장 중요한 소리다 */
+        bLastClack=t;bCrash(0,big.j>1.6,Math.max(.6,Math.min(1.2,big.j*.5)));
+      }
     }
-    /* 파울라인 */
-    bctx.strokeStyle="rgba(214,31,58,.75)";bctx.lineWidth=Math.max(2,d*.006);
-    bctx.beginPath();bctx.moveTo(bX(-1,0,d),bY(0,d));bctx.lineTo(bX(1,0,d),bY(0,d));bctx.stroke();
-    /* 어프로치 도트 7개 */
-    for(i=0;i<7;i++){
-      var ax=-.72+i*.24;
-      bctx.fillStyle="rgba(60,40,16,.5)";
-      bctx.beginPath();bctx.arc(bX(ax,.02,d),bY(.02,d),d*.006,0,TAU);bctx.fill();
-    }
-    /* 애로우 7개 */
-    for(i=0;i<7;i++){
-      var tx=-.54+i*.18,tz=.30+Math.abs(i-3)*.018;
-      var s=bS(tz),hgt=d*.03*s,wid=d*.016*s;
-      bctx.fillStyle="rgba(74,48,18,.62)";
-      bctx.beginPath();
-      bctx.moveTo(bX(tx,tz+.04,d),bY(tz+.04,d));
-      bctx.lineTo(bX(tx,tz,d)-wid,bY(tz,d));
-      bctx.lineTo(bX(tx,tz,d)+wid,bY(tz,d));
-      bctx.closePath();bctx.fill();
-    }
-    /* 핀덱 뒤 핏 */
-    bctx.fillStyle="#120c05";
-    bctx.beginPath();
-    bctx.moveTo(bX(-1.16,1.06,d),bY(1.06,d));bctx.lineTo(bX(1.16,1.06,d),bY(1.06,d));
-    bctx.lineTo(bX(1.16,1.6,d),bY(1.6,d));bctx.lineTo(bX(-1.16,1.6,d),bY(1.6,d));
-    bctx.closePath();bctx.fill();
-    /* 핀덱 스포트라이트 */
-    var pg=bctx.createRadialGradient(d/2,bY(.98,d),d*.01,d/2,bY(.98,d),d*.16);
-    pg.addColorStop(0,"rgba(255,246,214,.22)");pg.addColorStop(1,"rgba(255,246,214,0)");
-    bctx.fillStyle=pg;bctx.fillRect(0,0,d,d);
+    if(rat&&t-bLastRat>=.18){bLastRat=t;rattle((Math.random()-.5)*1.2);}
+    if(pit&&t-bLastPit>=.14){bLastPit=t;bPit();}
   }
-  function bDrawPin(d,p,st){
-    var z=p.z+st.gone*.5, xl=p.xl+st.slide;
-    if(st.gone>0&&st.gone>=1)return;
-    var s=bS(z),cx=bX(xl,z,d),cy=bY(z,d)-d*BPINH*s*.5-d*st.hop*s;
-    var w=d*BPINR*s,h=d*BPINH*s;
-    bctx.save();
-    bctx.globalAlpha=st.gone>0?Math.max(0,1-st.gone):1;
-    /* 그림자 — 핀덱 위에 짧게 */
-    bctx.globalAlpha*=.9;
-    bctx.fillStyle="rgba(0,0,0,.34)";
-    bctx.beginPath();bctx.ellipse(bX(xl,z,d),bY(z,d),w*.9,w*.34,0,0,TAU);bctx.fill();
-    bctx.globalAlpha=st.gone>0?Math.max(0,1-st.gone):1;
-    bctx.translate(cx,cy+h*.5);
-    bctx.rotate((st.fall*st.dir)+(st.wob||0));
-    bctx.translate(0,-h*.5);
-    /* 몸통 */
-    var g=bctx.createLinearGradient(-w,0,w,0);
-    g.addColorStop(0,"#d9d2c6");g.addColorStop(.42,"#ffffff");g.addColorStop(1,"#c9c1b3");
-    bctx.fillStyle=g;
-    bctx.beginPath();
-    bctx.moveTo(-w*.62,h*.5);
-    bctx.quadraticCurveTo(-w*.95,h*.05,-w*.42,-h*.12);
-    bctx.quadraticCurveTo(-w*.30,-h*.30,-w*.34,-h*.42);
-    bctx.quadraticCurveTo(0,-h*.60,w*.34,-h*.42);
-    bctx.quadraticCurveTo(w*.30,-h*.30,w*.42,-h*.12);
-    bctx.quadraticCurveTo(w*.95,h*.05,w*.62,h*.5);
-    bctx.closePath();bctx.fill();
-    bctx.strokeStyle="rgba(60,50,36,.35)";bctx.lineWidth=Math.max(.6,w*.09);bctx.stroke();
-    /* 빨간 띠 2개 */
-    bctx.fillStyle="#d61f3a";
-    bctx.fillRect(-w*.56,-h*.06,w*1.12,h*.075);
-    bctx.fillRect(-w*.50,h*.09,w*1.00,h*.06);
-    bctx.restore();
-  }
-  function bDrawBall(d){
-    var b=bBall;if(!b||b.gone)return;
-    var s=bS(b.z),r=d*BBALL*s*b.drop;
-    var cx=bX(b.xl,b.z,d),cy=bY(b.z,d)-r*.55;
-    /* 바닥 그림자 */
-    bctx.save();bctx.globalAlpha=.42;bctx.fillStyle="#000";
-    bctx.beginPath();bctx.ellipse(cx,bY(b.z,d),r*1.02,r*.34,0,0,TAU);bctx.fill();bctx.restore();
-    /* 마블 구체 */
-    var g=bctx.createRadialGradient(cx-r*.35,cy-r*.42,r*.12,cx,cy,r);
-    g.addColorStop(0,"#5b3f86");g.addColorStop(.45,"#2c2560");g.addColorStop(1,"#120e2c");
-    bctx.fillStyle=g;bctx.beginPath();bctx.arc(cx,cy,r,0,TAU);bctx.fill();
-    /* 손가락 구멍 3개 — roll 로 돌아 굴러가는 느낌 */
-    var i;
-    for(i=0;i<3;i++){
-      var a=b.roll+i*(TAU/3), tilt=Math.cos(b.axis);
-      var ox=Math.cos(a)*r*.42, oy=Math.sin(a)*r*.42*tilt-r*.12;
-      var dep=Math.max(.12,(Math.sin(a)*.5+.5));
-      bctx.fillStyle="rgba(8,6,18,"+(.35+.5*dep).toFixed(2)+")";
-      bctx.beginPath();bctx.ellipse(cx+ox,cy+oy,r*.14,r*.115*Math.max(.35,dep),a,0,TAU);bctx.fill();
-    }
-    /* 스펙큘러 */
-    var sg=bctx.createRadialGradient(cx-r*.38,cy-r*.45,0,cx-r*.38,cy-r*.45,r*.55);
-    sg.addColorStop(0,"rgba(255,255,255,.55)");sg.addColorStop(1,"rgba(255,255,255,0)");
-    bctx.fillStyle=sg;bctx.beginPath();bctx.arc(cx,cy,r,0,TAU);bctx.fill();
-  }
-  function drawBowl(){
-    if(!bctx||!bsize)return;
-    var d=bsize;
-    bctx.clearRect(0,0,d,d);
-    bctx.save();
-    if(bZoom!==1){
-      var zx=d/2,zy=bY(1,d);
-      bctx.translate(zx,zy);bctx.scale(bZoom,bZoom);bctx.translate(-zx,-zy);
-    }
-    bDrawLane(d);
-    /* 먼 것부터 — z 내림차순으로 핀을 그리고 공은 z 위치에 맞춰 낀다 */
-    var order=[0,1,2,3,4,5,6,7,8,9].sort(function(a,b){return BPINS[b].z-BPINS[a].z;});
-    var drew=false,i;
-    for(i=0;i<order.length;i++){
-      var pi=order[i];
-      if(!drew&&bBall&&bBall.z>BPINS[pi].z){bDrawBall(d);drew=true;}
-      bDrawPin(d,BPINS[pi],bPinState[pi]);
-    }
-    if(!drew)bDrawBall(d);
-    bctx.restore();
-  }
-  /* 공 굴리기 — 윷과 같은 패턴으로 결과를 먼저 뽑고 연출이 거기에 맞춘다 */
+
+
+  /* 공 굴리기 — 추첨을 먼저 하고, 그 결과가 나오는 물리를 찾아 재생한다 */
   function rollBall(){
     if(bowling)return;
     audio();if(actx.state==="suspended")actx.resume();
@@ -1710,121 +2019,102 @@
     bowling=true;setDisabled(true);lockTabs(true);
     $("bowlName").classList.remove("show");
     bReset();
+    bLastClack=-9;bLastPit=-9;bLastRat=-9;
 
     var tier=bPickTier(),opt=bowlOpts[tier];
     var n=tier===4?10:(tier===0?0:bPinCount(opt.pins));
-    var entry=bEntryFor(tier),gutter=(tier===0);
-    var knocked=gutter?[]:bKnockSet(entry,n);
+    var gutter=(tier===0);
     var reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var sol=null,sim=null;
+    if(!gutter){
+      sol=bSolve(n);
+      sim=bSimRun(sol.p,true,n);          /* 채택본을 보정과 함께 녹화 */
+      var tf=bFixTraj(sim.traj,n);        /* 궤적 수준 최종 보증 */
+      bCorrCount+=(sim.fixed>0||tf>0)?1:0; bRunCount++;
+    }else{ bRunCount++; }
 
-    var SET=reduce?120:350, ROLL=reduce?800:2250, HIT=SET+ROLL;
-    var x0=(Math.random()-.5)*.18;                  /* 릴리스 지점 */
-    var xr=x0+.30+Math.random()*.12;                /* 오른쪽으로 벗어나는 정점 */
-    var hookAt=.55;
-    var t0=performance.now(),crashed=false,setDone=false;
+    var SET=reduce?120:350, ROLL=reduce?800:2050;
+    var x0=gutter?(Math.random()-.5)*.18:(sol.p.x*.35);
+    var xEnd=gutter?(Math.random()<.5?-1.25:1.25):sol.p.x*2;
+    var xr=x0+(gutter?.30:.34)+Math.random()*.10;
+    var t0=performance.now(),last=t0,simT=0,contactReal=-1,evIdx=0,phase2=false;
+    var b=bPlay.ball;b.drop=1;b.roll=0;b.axis=0;
     bSet();
 
     (function frame(now){
-      var el=now-t0,b=bBall,i;
+      var dtR=Math.min(.05,(now-last)/1000);last=now;
+      var el=now-t0,i;
       if(el<SET){
-        /* 1) 셋업 — 공이 내려앉는다 */
         var q=el/SET;
         b.drop=1.08-.08*(1-Math.pow(1-q,2));
-        b.z=0;b.xl=x0;
-      }else if(el<HIT){
-        if(!setDone){setDone=true;bRoll(ROLL);}
+        b.x=x0/2;b.y=-1.4;
+      }else if(!phase2){
+        if(!b.rolling){b.rolling=1;bRoll(ROLL);}
         var p=(el-SET)/ROLL;
-        var e=1-Math.pow(1-p,1.35);                 /* 초반 빠르고 핀 근처 살짝 감속 */
-        b.drop=1;b.z=e;
-        if(gutter){
-          /* z 0.35 부터 거터로 빠진다 */
-          if(b.z<.35)b.xl=x0+(xr-x0)*(b.z/.35);
-          else{
-            var gq=Math.min(1,(b.z-.35)/.25);
-            b.xl=xr+(entry-xr)*(1-Math.pow(1-gq,2));
-            if(!b.inGut&&gq>.55){b.inGut=true;bGutter();}
-          }
-        }else if(b.z<hookAt){
-          b.xl=x0+(xr-x0)*(b.z/hookAt);
-        }else{
-          var hq=(b.z-hookAt)/(1-hookAt);
-          b.xl=xr+(entry-xr)*(1-Math.pow(1-hq,2));  /* 훅 — 왼쪽으로 파고든다 */
-          b.axis=hq*.9;
-          if(!b.sq1&&hq>.18){b.sq1=true;bSqueak();}
-          if(!b.sq2&&hq>.62){b.sq2=true;bSqueak();}
-        }
-        b.roll+=.34+.20*(1-b.z);
-        bRollUpdate(b.z,b.xl);
-      }else{
-        /* 3) 충돌·붕괴 */
-        b.z=1+(el-HIT)/900*(gutter?1.1:.55);
-        b.roll+=.16;
-        if(b.z>1.35)b.gone=true;
-        if(!crashed){
-          crashed=true;bRollStop();
-          if(gutter){bPit();}
-          else{
-            bCrash(knocked.length,tier===4);
-            for(i=0;i<knocked.length;i++){
-              var st=bPinState[knocked[i]];
-              st.at=el+(reduce?0:40+Math.random()*100);
-              st.dir=(BPINS[knocked[i]].xl>=entry?1:-1)*(1+Math.random()*.25);
-              st.dir*=(1+(Math.random()-.5)*.7);      /* 진입 방향 + ±35° 정도 산포 */
-              st.hopUp=Math.random()<.3;
-              st.slideTo=(Math.random()<.5?-1:1)*(.03+Math.random()*.05);
-              st.flyOff=(tier===4&&Math.random()<.28);
-            }
-          }
+        if(p>=1){ phase2=true; }
+        else{
+          var e=1-Math.pow(1-p,1.35);
+          var z=e*.874;                      /* 물리 시작 지점(y=-0.6) 까지 */
+          var xl;
+          if(gutter){
+            if(z<.35)xl=x0+(xr-x0)*(z/.35);
+            else{var gq=Math.min(1,(z-.35)/.25);xl=xr+(xEnd-xr)*(1-Math.pow(1-gq,2));
+                 if(!b.inGut&&gq>.55){b.inGut=1;bGutter();}}
+          }else if(z<.55){ xl=x0+(xr-x0)*(z/.55); }
+          else{ var hq=(z-.55)/(1-.55+.126);
+                xl=xr+(xEnd-xr)*(1-Math.pow(1-Math.min(1,hq),2));
+                b.axis=Math.min(1,hq)*.9;
+                if(!b.sq1&&hq>.18){b.sq1=1;bSqueak();}
+                if(!b.sq2&&hq>.62){b.sq2=1;bSqueak();} }
+          b.drop=1;b.x=xl/2;b.y=(z-BZ0)/BZK;
+          b.roll+=.34+.20*(1-z);
+          bRollUpdate(z,xl);
+          /* 카메라 — 위치 기반 추적 */
         }
       }
-      /* 핀 상태 진행 */
-      var settled=true;
-      for(i=0;i<10;i++){
-        var s2=bPinState[i];
-        if(s2.at<0){
-          /* 안 맞은 핀 — 착탄 직후 미세 흔들림 */
-          if(crashed&&!gutter&&el-HIT<200)s2.wob=Math.sin((el-HIT)/200*Math.PI*3)*(3*Math.PI/180);
-          else s2.wob=0;
-          continue;
+      if(phase2){
+        /* 녹화된 물리 궤적 재생 */
+        if(gutter){
+          if(contactReal<0){contactReal=now;bRollStop();bPit();}
+          simT+=dtR;
+          bPlay.wob=Math.sin(simT*22)*Math.exp(-simT*2.2)*(2*Math.PI/180);
+          for(i=0;i<10;i++)bPlay.pins[i].th=Math.abs(bPlay.wob);
+          b.y=(1.12-BZ0)/BZK+simT*1.2;b.roll+=.16;
+          if(bZof(b.y)>1.19)b.gone=1;
+        }else{
+          var rate=1;
+          simT+=dtR*rate;
+          var fi=Math.min(sim.traj.length-1,Math.floor(simT/BSIM_DT));
+          var fr=sim.traj[fi];
+          b.x=fr[0];b.y=fr[1];b.gone=fr[2];b.roll+=.16*rate;
+          for(i=0;i<10;i++){
+            var o=3+i*7,pp=bPlay.pins[i];
+            pp.x=fr[o];pp.y=fr[o+1];pp.th=fr[o+2];pp.phi=fr[o+3];
+            pp.hop=fr[o+4];pp.gone=fr[o+5];pp.st=fr[o+6];
+          }
+          /* 이 프레임까지 도달한 충돌 이벤트를 소리로 */
+          var due=[];
+          while(evIdx<sim.ev.length&&sim.ev[evIdx].t<=simT){due.push(sim.ev[evIdx]);evIdx++;}
+          if(due.length&&contactReal<0){
+            contactReal=now;bRollStop();
+            bCrash(0,n>=10,1.0);        /* 사운드 연동은 다음 커밋에서 */
+          }
         }
-        var a=el-s2.at;
-        if(a<0){settled=false;continue;}
-        var dur=reduce?1:260;
-        var q2=Math.min(1,a/dur);
-        s2.fall=(85+Math.random()*0)*Math.PI/180*Math.pow(q2,1.7);
-        s2.fall=(95*Math.PI/180)*Math.pow(q2,1.7);
-        if(s2.hopUp)s2.hop=.06*Math.sin(Math.PI*Math.min(1,a/180));
-        s2.slide=s2.slideTo*q2;
-        if(s2.flyOff)s2.gone=Math.max(0,(a-200)/500);
-        if(q2<1||(s2.flyOff&&s2.gone<1))settled=false;
+        bCamPan=1;bCamZ=1.35;
       }
       drawBowl();
-      var done=crashed&&settled&&el>HIT+(reduce?60:800);
+      var done=phase2&&(gutter?simT>1.1:simT>=BSIM_T-.02);
       if(!done){requestAnimationFrame(frame);return;}
 
-      bowling=false;setDisabled(false);
+      bowling=false;setDisabled(false);bRollStop();
       var isLose=/꽝|다음 기회/.test(opt.label);
       var head=(tier===4)?"STRIKE!":(n===0?"거터…":n+"핀!");
       var nm=$("bowlName");nm.textContent=head;
       nm.style.color=(tier===4)?"#FFC400":(n===0?"#c4b6a0":"#ffffff");
       var rec="[볼링·"+(n===0?"거터":n+"핀")+"] "+opt.label;
-      if(reduce){
-        bZoom=1;drawBowl();nm.classList.add("show");bResult(tier,isLose);
-        setTimeout(function(){finishWith(opt.label,rec);},1200);
-        return;
-      }
-      setTimeout(function(){
-        var z0=performance.now();
-        (function zoom(zn){
-          var q3=Math.min(1,(zn-z0)/550);
-          bZoom=1+.35*(1-Math.pow(1-q3,3));
-          drawBowl();
-          if(q3<1){requestAnimationFrame(zoom);return;}
-          nm.classList.add("show");
-          bResult(tier,isLose);
-          setTimeout(function(){finishWith(opt.label,rec);},1200);
-        })(z0);
-      },200);
+      nm.classList.add("show");
+      bResult(tier,isLose);
+      setTimeout(function(){finishWith(opt.label,rec);},1200);
     })(t0);
   }
 
