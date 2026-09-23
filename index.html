@@ -1494,7 +1494,8 @@
   var bcv=$("bowl"),bctx=bcv?bcv.getContext("2d"):null;
   var bsize=0,bowling=false;
   var BVAN=.10,BNEAR=.86,BHALF=.42,BBALL=.072,BPINR=.052,BPINH=.155;
-  function bS(z){ return 1/(1+2.6*z); }
+  /* 원근을 완화해 핀덱이 예전보다 1.5배 크게 보이게 한다 */
+  function bS(z){ return 1/(1+1.4*z); }
   function bY(z,d){ return d*(BVAN+(BNEAR-BVAN)*bS(z)); }
   function bX(xl,z,d){ return d/2+xl*d*BHALF*bS(z); }
 
@@ -2070,6 +2071,10 @@
           b.roll+=.34+.20*(1-z);
           bRollUpdate(z,xl);
           /* 카메라 — 위치 기반 추적 */
+          var cp=Math.max(0,Math.min(1,(z-.45)/.52));
+          cp=cp<.5?2*cp*cp:1-Math.pow(-2*cp+2,2)/2;
+          if(reduce)cp=z>.45?1:0;
+          bCamPan=cp;bCamZ=1+BCAMZ_MAX_1*cp;
         }
       }
       if(phase2){
@@ -2083,6 +2088,11 @@
           if(bZof(b.y)>1.19)b.gone=1;
         }else{
           var rate=1;
+          if(contactReal>=0&&!reduce){
+            var er=now-contactReal;
+            if(er<350)rate=.45;
+            else if(er<550)rate=.45+.55*((er-350)/200);
+          }
           simT+=dtR*rate;
           var fi=Math.min(sim.traj.length-1,Math.floor(simT/BSIM_DT));
           var fr=sim.traj[fi];
@@ -2095,12 +2105,12 @@
           /* 이 프레임까지 도달한 충돌 이벤트를 소리로 */
           var due=[];
           while(evIdx<sim.ev.length&&sim.ev[evIdx].t<=simT){due.push(sim.ev[evIdx]);evIdx++;}
-          if(due.length&&contactReal<0){
-            contactReal=now;bRollStop();
-            bCrash(0,n>=10,1.0);        /* 사운드 연동은 다음 커밋에서 */
+          if(due.length){
+            if(contactReal<0){contactReal=now;bRollStop();}
+            bFireEvents(due);
           }
         }
-        bCamPan=1;bCamZ=1.35;
+        bCamPan=1;bCamZ=BCAMZ_MAX;
       }
       drawBowl();
       var done=phase2&&(gutter?simT>1.1:simT>=BSIM_T-.02);
