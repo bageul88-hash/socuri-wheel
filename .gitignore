@@ -1,0 +1,6 @@
+# Node 검증 스크립트가 CDN 에서 받아 쓰는 Rapier 빌드 (2MB, 저장소에 둘 필요 없음)
+# 받기:
+#   curl -o tools/rapier.es.js \
+#     https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.14.0/rapier.es.js
+tools/rapier.es.js
+node_modules/
