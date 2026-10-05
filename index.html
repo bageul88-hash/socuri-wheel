@@ -29,7 +29,14 @@
 
   /* ===================== SIGNUP ===================== */
   #signup{background:radial-gradient(120% 100% at 30% 0%, #fbf7ef 0%, var(--cream) 55%, var(--cream-2) 100%);}
-  .col-logo{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4vmin;}
+  /* align-self:stretch 가 있어야 이 칼럼이 .wrap(100vh) 높이를 받는다.
+     .wrap 은 align-items:center 라 기본값이면 칼럼이 "내용 높이"만큼만 잡히고,
+     그러면 아래 .member-input-wrap 의 margin-top:auto(= 하단 배치)가 무효가 돼
+     회원번호 칸이 부제 문구에 딱 붙어버린다. */
+  .col-logo{flex:1;align-self:stretch;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4vmin;}
+  /* 로고에도 auto 를 줘 남는 공간을 위/아래가 반씩 나눠 갖게 한다.
+     → 로고·브랜드 묶음은 지금 위치 그대로, 회원번호 칸만 아래로 내려간다. */
+  .col-logo .logo{margin-top:auto;}
   .logo{width:32vmin;height:32vmin;border-radius:50%;overflow:hidden;background:#fff;
     box-shadow:0 18px 44px rgba(166,30,50,.28),0 4px 10px rgba(0,0,0,.12);}
   .logo img{width:104%;height:104%;object-fit:cover;transform:translate(-2%,-2%);display:block;}
@@ -174,7 +181,10 @@
   canvas#fx{position:fixed;inset:0;pointer-events:none;z-index:40;}
 
   /* ── 회원번호 입력칸 (좌측 하단) ── */
-  .member-input-wrap{margin-top:auto;width:100%;max-width:380px;padding:0 0 3vmin;}
+  /* margin-top:auto 로 하단에 붙이되, 화면이 낮아 남는 공간이 없을 때(모바일 등)
+     부제 문구와 0px 로 붙지 않도록 padding-top 으로 최소 간격을 보장한다. */
+  .member-input-wrap{margin-top:auto;width:100%;max-width:380px;
+    padding:clamp(24px,4vmin,48px) 0 3vmin;}
   .member-label{display:block;font-size:clamp(13px,1.5vmin,16px);font-weight:700;color:var(--ink);margin-bottom:9px;}
   .member-input{width:100%;border:1.5px solid var(--line);background:var(--white);border-radius:15px;
     padding:14px 18px;font-size:clamp(22px,3vmin,32px);font-weight:800;color:var(--ink);
